@@ -63,12 +63,27 @@ static inline f32 pc_luma(u8 r, u8 g, u8 b) {
   return 0.299f * (f32)r + 0.587f * (f32)g + 0.114f * (f32)b;
 }
 
+/* deterministic 2D hash noise in [0, 1) */
+static inline f32 pc_hash2(i32 x, i32 y) {
+  u32 v = (u32)x * 374761393u + (u32)y * 668265263u;
+  v = (v ^ (v >> 13)) * 1274126177u;
+  v ^= v >> 16;
+  return (f32)(v & 0xFFFFFFu) * (1.0f / 16777216.0f);
+}
+
+/* tensor.c */
+void pc_box3_blur(const f32 *src, f32 *dst, i32 w, i32 h);
+void pc_structure_tensor(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy,
+                         f32 *aniso);
+
 /* pipeline stages */
 void pc_kuwahara(const u8 *src, u8 *dst, i32 w, i32 h, i32 radius, f32 q);
+void pc_flow_strokes(u8 *img, i32 w, i32 h, i32 length);
 void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
 void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
-                f32 specular, i32 shininess);
+                f32 specular, i32 shininess, f32 bristle, f32 weave,
+                f32 weave_scale);
 void pc_lanczos3(const u8 *src, i32 sw, i32 sh, u8 *dst, i32 dw, i32 dh);
 void pc_unsharp(u8 *img, i32 w, i32 h, f32 amount, f32 sigma);
 

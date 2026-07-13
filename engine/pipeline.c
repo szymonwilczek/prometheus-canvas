@@ -14,19 +14,25 @@
 
 /*
  * Stages 1-5 at constant resolution:
- * Kuwahara -> pigment quantization -> saturation/contrast -> impasto.
- * Any stage collapses to no-op at its neutral parameter value
- * (radius 0, pigments 0, sat/contrast 1, depth 0).
+ * Kuwahara -> flow strokes -> pigment quantization -> saturation/
+ * contrast -> impasto (ridges + bristles + canvas weave, Blinn-Phong).
+ * Any stage collapses to a no-op at its neutral parameter value
+ * (radius 0, stroke length 0, pigments 0, sat/contrast 1, depth 0).
  */
 void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
-                f32 edge_q, i32 pigments, f32 saturation, f32 contrast,
-                f32 impasto_depth, f32 light_elev, f32 light_azim, f32 specular,
-                i32 shininess) {
+                f32 edge_q, i32 stroke_length, i32 pigments, f32 saturation,
+                f32 contrast, f32 impasto_depth, f32 light_elev, f32 light_azim,
+                f32 specular, i32 shininess, f32 bristle, f32 weave,
+                f32 weave_scale) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
+  /* quantize before the stroke pass:
+   * flow advection then smears the hard pigment boundaries directionally,
+   * turning posterization bands into brushy directional transitions */
   pc_quantize(dst, w, h, pigments);
+  pc_flow_strokes(dst, w, h, stroke_length);
   pc_color_adjust(dst, w, h, saturation, contrast);
   pc_impasto(dst, w, h, impasto_depth, light_elev, light_azim, specular,
-             shininess);
+             shininess, bristle, weave, weave_scale);
 }
 
 /*

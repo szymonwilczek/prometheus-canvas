@@ -1,41 +1,32 @@
 /*
- * 3D paint relief: Sobel heightmap + Blinn-Phong shading.
+ * Physical paint relief: heightmap synthesis + Blinn-Phong.
  *
- * Oil paint is physically three-dimensional: it piles up along stroke
- * boundaries and raking light catches the ridges.
+ * Oil paint is three-dimensional.
+ * Height field is assembled from three mathematically distinct layers:
  *
- * Reconstruction:
- * 1. Heightmap = Sobel gradient magnitude of the painted image's luma.
- *    After the Kuwahara stage the image is piecewise-flat, so gradient
- *    magnitude is concentrated exactly at stroke boundaries - where
- *    real painter's brush would leave ridges.
- * 2. Two 3x3 box blurs give the ridges soft flanks
- * (approximating a small Gaussian) so light has slopes to play on.
- * 3. Surface normal from central differences of the heightmap, scaled
- *    by the depth slider: N = normalize(-dh/dx * d, -dh/dy * d, 1)
- * 4. Blinn-Phong per pixel with light direction from elevation/azimuth:
- *    I = ambient + diffuse * max(N.L, 0), + specular term max(N.H, 0)^shininess
- *    (H = half-vector between L and the viewer).
- *    Diffuse is normalized against flat surface so untextured areas keep their
- *    original brightness at any light angle.
+ * 1. RIDGES - Sobel gradient magnitude of the painted image.
+ *    After Kuwahara + flow strokes the image is piecewise-flat, so
+ *    gradient energy sits exactly on stroke boundaries, where a loaded
+ *    brush deposits its thickest bead of paint.
+ *    Two box blurs give the ridges soft flanks.
+ * 2. BRISTLES - grooves scratched by individual brush hairs.
+ *    Phase runs across the local stroke direction (perpendicular
+ *    coordinate against the structure-tensor flow field), jittered by
+ *    hash noise so hairs are irregular, amplitude gated by anisotropy
+ *    so grooves exist only where there is actual directional structure.
+ * 3. CANVAS WEAVE - procedural plain-weave fabric:
+ *    warp/weft threads alternate over/under on a checkerboard, each
+ *    thread's crown is |sin| shaped, thread thickness jittered per-cell.
+ *    Weave is attenuated where the paint ridge is thick - heavy impasto
+ *    hides the canvas, thin washes reveal it, exactly like real painting.
+ *
+ * Combined field is lit per pixel by Blinn-Phong with the light direction from
+ * the elevation/azimuth sliders.
+ * Diffuse is normalized against a flat surface, and the specular term is offset
+ * by the flat-surface glint, so zero-relief pixel keeps its exact original
+ * color at any light angle.
  */
 #include "pc.h"
-
-static void box3_blur(const f32 *src, f32 *dst, i32 w, i32 h) {
-  for (i32 y = 0; y < h; y++) {
-    for (i32 x = 0; x < w; x++) {
-      f32 acc = 0.0f;
-      for (i32 dy = -1; dy <= 1; dy++) {
-        i32 yy = pc_clampi(y + dy, 0, h - 1);
-        for (i32 dx = -1; dx <= 1; dx++) {
-          i32 xx = pc_clampi(x + dx, 0, w - 1);
-          acc += src[(usize)yy * (usize)w + (usize)xx];
-        }
-      }
-      dst[(usize)y * (usize)w + (usize)x] = acc * (1.0f / 9.0f);
-    }
-  }
-}
 
 static f32 pow_int(f32 x, i32 e) {
   f32 r = 1.0f;
@@ -49,8 +40,9 @@ static f32 pow_int(f32 x, i32 e) {
 }
 
 void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
-                f32 specular, i32 shininess) {
-  if (depth <= 0.0f)
+                f32 specular, i32 shininess, f32 bristle, f32 weave,
+                f32 weave_scale) {
+  if (depth <= 0.0f && weave <= 0.0f)
     return;
 
   usize n = (usize)w * (usize)h;
@@ -63,9 +55,8 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
   for (usize i = 0; i < n; i++)
     luma[i] = pc_luma(img[i * 4], img[i * 4 + 1], img[i * 4 + 2]);
 
-  /* Sobel gradient magnitude, normalized to [0, 1]
-   * Max |Gx| is 4 * 255 = 1020, so the magnitude is at most 1020 * sqrt(2) */
-  const f32 NORM = 1.0f / 1442.5f;
+  /* layer 1: stroke-boundary ridges */
+  const f32 NORM = 1.0f / 1442.5f; /* max Sobel magnitude 1020*sqrt(2) */
   for (i32 y = 0; y < h; y++) {
     i32 ym = pc_maxi(y - 1, 0), yp = pc_mini(y + 1, h - 1);
     for (i32 x = 0; x < w; x++) {
@@ -76,19 +67,64 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
       f32 gy = (L(xm, yp) + 2.0f * L(x, yp) + L(xp, yp)) -
                (L(xm, ym) + 2.0f * L(x, ym) + L(xp, ym));
 #undef L
+      f32 mag = pc_sqrtf(gx * gx + gy * gy) * NORM;
+      /* mag^1.4: keeps bold stroke ridges, fades the faint
+       * outlines around low-contrast pigment bands */
       height[(usize)y * (usize)w + (usize)x] =
-          pc_sqrtf(gx * gx + gy * gy) * NORM;
+          mag > 1e-6f ? pc_powf(mag, 1.4f) : 0.0f;
+    }
+  }
+  pc_box3_blur(height, tmp, w, h);
+  pc_box3_blur(tmp, height, w, h);
+
+  /* layer 2: bristle grooves along the flow field */
+  if (bristle > 0.0f) {
+    f32 *fx = (f32 *)pc_alloc(n * 4);
+    f32 *fy = (f32 *)pc_alloc(n * 4);
+    f32 *aniso = (f32 *)pc_alloc(n * 4);
+    if (fx && fy && aniso) {
+      pc_structure_tensor(img, w, h, fx, fy, aniso);
+      const f32 GROOVE_FREQ = PC_2PI / 3.0f; /* ~3 px per hair */
+      for (i32 y = 0; y < h; y++) {
+        for (i32 x = 0; x < w; x++) {
+          usize i = (usize)y * (usize)w + (usize)x;
+          /* coordinate across the stroke; grooves run along it */
+          f32 t = -(f32)x * fy[i] + (f32)y * fx[i];
+          /* per-region phase jitter so hairs stay irregular */
+          f32 jit = pc_hash2(x >> 3, y >> 3) * PC_2PI;
+          f32 groove = pc_sinf(t * GROOVE_FREQ + jit);
+          /* Fine paint granularity. */
+          f32 grain = pc_hash2(x, y) - 0.5f;
+          /* aniso^2 gates out noise-driven false structure
+           * so grooves appear only along genuine strokes */
+          f32 gate = aniso[i] * aniso[i];
+          height[i] += bristle * gate * (groove * 0.035f + grain * 0.02f);
+        }
+      }
     }
   }
 
-  /* soft ridge flanks: two box blurs ~ Gaussian */
-  box3_blur(height, tmp, w, h);
-  box3_blur(tmp, height, w, h);
+  /* layer 3: plain-weave canvas, revealed where paint is thin */
+  if (weave > 0.0f && weave_scale >= 1.0f) {
+    f32 inv_s = 1.0f / weave_scale;
+    for (i32 y = 0; y < h; y++) {
+      for (i32 x = 0; x < w; x++) {
+        usize i = (usize)y * (usize)w + (usize)x;
+        f32 u = (f32)x * inv_s, v = (f32)y * inv_s;
+        i32 cu = (i32)pc_floorf(u), cv = (i32)pc_floorf(v);
+        f32 warp = pc_fabsf(pc_sinf(PC_PI * u));
+        f32 weft = pc_fabsf(pc_sinf(PC_PI * v));
+        /* over/under alternation of threads on checkerboard,
+         * thread crown thickness jittered per cell */
+        f32 thread = ((cu + cv) & 1) ? warp : weft;
+        f32 jitter = 0.85f + 0.3f * pc_hash2(cu, cv);
+        f32 cover = 1.0f - pc_minf(1.0f, height[i] * 3.0f);
+        height[i] += weave * 0.02f * thread * jitter * cover;
+      }
+    }
+  }
 
-  /* light direction from elevation/azimuth
-   * (screen y points down),
-   * viewer along +z,
-   * H = normalize(L + V) */
+  /* Blinn-Phong over the combined field */
   f32 ce = pc_sinf(elev + PC_HALFPI);      /* cos(elev) */
   f32 lx = ce * pc_sinf(azim + PC_HALFPI); /* cos(azim) * cos(elev) */
   f32 ly = -ce * pc_sinf(azim);
@@ -104,6 +140,8 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
   f32 flat = AMBIENT + DIFFUSE * pc_maxf(lz, 0.0f);
   f32 inv_flat = flat > 1e-6f ? 1.0f / flat : 1.0f;
   f32 flat_spec = specular * pow_int(pc_maxf(hz, 0.0f), shininess);
+  /* weave-only mode still needs normals to have something to bite on */
+  f32 slope = depth > 0.0f ? depth : 20.0f;
 
   for (i32 y = 0; y < h; y++) {
     i32 ym = pc_maxi(y - 1, 0), yp = pc_mini(y + 1, h - 1);
@@ -116,7 +154,7 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
                  height[(usize)ym * (usize)w + (usize)x]) *
                 0.5f;
 
-      f32 nx = -dhx * depth, ny = -dhy * depth, nz = 1.0f;
+      f32 nx = -dhx * slope, ny = -dhy * slope, nz = 1.0f;
       f32 inv_len = 1.0f / pc_sqrtf(nx * nx + ny * ny + 1.0f);
       nx *= inv_len;
       ny *= inv_len;
@@ -125,9 +163,7 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
       f32 ndl = pc_maxf(nx * lx + ny * ly + nz * lz, 0.0f);
       f32 ndh = pc_maxf(nx * hx + ny * hy + nz * hz, 0.0f);
 
-      /* normalized so a flat pixel (N = +z) multiplies by 1 */
       f32 mult = (AMBIENT + DIFFUSE * ndl) * inv_flat;
-      /* specular relative to flat: ridges glint, flats unchanged */
       f32 spec = 255.0f * (specular * pow_int(ndh, shininess) - flat_spec);
 
       usize o = (row + (usize)x) * 4;
