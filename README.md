@@ -10,19 +10,31 @@ No pixel ever leaves your machine. No GPU farm burns electricity on your behalf.
 
 ## Manifesto
 
-This project exists as a deliberate counter-movement.
+This project exists because we are angry, and we think you should be too.
 
-The current software landscape is flooded with "AI photo apps" that are nothing more than
-thin wrappers: a file upload form, one HTTP call to a diffusion-model API someone else built,
-and a subscription paywall in front of it. They charge predatory fees for what is,
-underneath, a single automated request. They rent GPU clusters to do work that - for an entire
-class of problems - never needed a GPU cluster at all.
+Right now, somewhere, a person is dragging your family photo into a diffusion model,
+clicking one button, and charging **$10 for the JPEG**. Somewhere else an "app" charges
+$15/month - forever - for "AI oil painting portraits", and underneath the landing page
+there is nothing but a file upload form, a single HTTP call to a model someone else
+trained on paintings scraped from artists who were never asked, and a paywall bolted in
+front of it. Etsy listings sell "hand-crafted digital oil portraits" that are one prompt
+and eleven seconds of GPU time. Subscription tiers. Watermarks on the "free" version.
+"Credits." For *this*.
 
-**Prometheus is proof by construction that this class of problem was solved decades
-ago, by mathematics, and that the solution runs on the device you already own.**
+Here is what they are hoping you never find out: **the painterly look was solved by
+mathematics half a century ago, published openly, and it has been sitting in the public
+literature free of charge ever since.** Kuwahara, 1976. Sobel, 1968. Blinn and Phong,
+1977. Lanczos, 1979. These people gave their work to everyone, forever. The sellers
+wrapped a rental GPU around a scraped model and priced it like craftsmanship.
 
-Every visual effect in this application is a classic, citable computer-vision or
-computer-graphics algorithm:
+Nobody painted your $10 "painting". Nobody even *computed* it honestly - they rented the
+computation, marked it up, and kept your photo.
+
+**Mathematics was free. Mathematics is free. Mathematics will remain free.**
+
+Prometheus is proof by construction. Every visual effect in this application is a
+classic, citable computer-vision or computer-graphics algorithm running in *your* browser
+on *your* CPU - no model, no scraping, no rental, no bill:
 
 | Effect | Algorithm | Era |
 |---|---|---|
@@ -42,17 +54,29 @@ this repository for you to read, audit, learn from, and steal.
 ### What I assert
 
 1. **Local-first is a right, not a tier.** Your images are processed in a Web Worker on
-   your CPU. The app works offline. There is nothing to subscribe to.
-2. **Mathematics is not obsolete.** A 1976 filter with a summed-area-table optimization
+   your CPU. The app works offline. There is nothing to subscribe to, because there is
+   no recurring cost to pass on - that is what "no servers" actually means.
+2. **Mathematics is not obsolete.** A 1976 filter with an O(1)-per-pixel optimization
    produces painterly results at interactive speed on a laptop. Not everything needs a
-   billion parameters.
+   billion parameters, and nothing here needed even one.
 3. **Engineering beats wrapping.** The difficulty of a product should live in its code,
-   not in its pricing page.
+   not in its pricing page. If your entire product is somebody else's API call, the
+   price of your product is somebody else's API price - everything above that is the
+   fee you charge for hoping your customers don't know better.
 4. **Free means free.** GPL-2.0 licensed (see [LICENSE](LICENSE)), no accounts, no
-   watermarks, no "3 free credits" - and copyleft, so it stays free downstream.
+   watermarks, no "3 free credits" - and copyleft, so it stays free downstream. If
+   someone tries to sell you this exact software, the license is on your side: demand
+   the source, take it, and run.
+5. **Hosted is a convenience, not a leash.** A public instance exists so nobody is
+   *forced* to install anything - but you can always clone this repository and run the
+   entire application locally, offline, forever. The hosted copy holds nothing hostage:
+   no accounts, no quotas, no telemetry. See [Deploying](#deploying-vercel-or-anywhere-static)
+   to stand up your own copy in one command.
 
-If you were about to pay \$15/month or \$10 per phototo make your photos look like paintings: don't.
-Clone this instead.
+If you were about to pay $5/month - or $10 per image - to make your photos look like
+paintings: don't. Every algorithm the sellers hide behind a checkout button is in this
+repository, named, documented, and free. Clone it. Read it. Keep your money and keep
+your photos.
 
 ---
 
