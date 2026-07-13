@@ -98,6 +98,10 @@ void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);
 void pc_sbr_field(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy, f32 *aniso,
                   f32 *imp);
 
+/* sbr.c */
+void pc_sbr(u8 *img, i32 w, i32 h, i32 size, f32 undercoat, f32 form,
+            f32 detail, f32 alignment, f32 azim);
+
 /* knife.c */
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
               f32 detail, f32 azim, f32 tint);

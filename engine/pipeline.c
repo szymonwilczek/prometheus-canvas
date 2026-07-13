@@ -24,13 +24,28 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 contrast, f32 impasto_depth, f32 light_elev, f32 light_azim,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,
                 f32 weave_scale, f32 cavity, f32 pigment_noise, f32 noise_scale,
-                i32 knife_mode, i32 knife_size, f32 knife_detail) {
+                i32 render_mode, i32 knife_size, f32 knife_detail,
+                f32 sbr_undercoat, f32 sbr_form, f32 sbr_detail,
+                f32 sbr_alignment) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
   /* Quantize before any stroke pass:
-   * both renderers then work with limited physical palette */
+   * all renderers then work with limited physical palette */
   pc_quantize(dst, w, h, pigments);
 
-  if (knife_mode) {
+  if (render_mode == 2) {
+    /* Multi-scale SBR:
+     * image is repainted bottom-to-top from traced vector strokes
+     * (undercoat slabs -> flow-following form strokes -> importance-gated
+     * micro-detail);
+     * per-pixel texture stages do not apply */
+    pc_sbr(dst, w, h, knife_size, sbr_undercoat, sbr_form, sbr_detail,
+           sbr_alignment, light_azim);
+    pc_color_adjust(dst, w, h, saturation, contrast);
+    pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
+    return;
+  }
+
+  if (render_mode == 1) {
     /* Palette knife:
      * the image is rebuilt from discrete smears that carry their own relief;
      * the per-pixel texture stages (flow LIC, Sobel ridges, bristles) do not
