@@ -42,6 +42,7 @@ interface EngineExports {
     knifeRidge: number,
     knifeDryness: number,
     knifeDrag: number,
+    vibrancy: number,
   ): void;
   pc_upscale(
     src: number,
@@ -122,6 +123,7 @@ function handle(req: WorkerRequest): void {
     p.knifeRidge,
     p.knifeDryness,
     p.knifeDrag,
+    p.paintVibrancy,
   );
 
   if (out) {

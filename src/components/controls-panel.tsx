@@ -148,6 +148,10 @@ export function ControlsPanel({
                 step={0.05}
                 onChange={(v) => set("knifeRidge", v)}
               />
+            </>
+          )}
+          {params.mode !== "brush" && (
+            <>
               <ParamSlider
                 label="Paint dryness (skipping)"
                 value={params.knifeDryness}
@@ -163,6 +167,14 @@ export function ControlsPanel({
                 max={1}
                 step={0.05}
                 onChange={(v) => set("knifeDrag", v)}
+              />
+              <ParamSlider
+                label="Pigment mix vibrancy"
+                value={params.paintVibrancy}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("paintVibrancy", v)}
               />
             </>
           )}

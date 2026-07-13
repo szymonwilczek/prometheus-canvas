@@ -55,16 +55,22 @@ export interface PaintParams {
    */
   knifeRidge: number;
   /**
-   * Knife mode: paint dryness / skipping threshold (0-1). 0 = loaded wet
-   * knife covers everything, 1 = pigment catches only on relief peaks,
+   * Knife + SBR modes: paint dryness / skipping threshold (0-1). 0 = loaded
+   * wet brush covers everything, 1 = pigment catches only on relief peaks,
    * leaving dry-brush voids in the valleys.
    */
   knifeDryness: number;
   /**
-   * Knife mode: wet-on-wet pigment dragging (0-1). How much of the
-   * underlying wet paint the blade shears and carries along the stroke.
+   * Knife + SBR modes: wet-on-wet pigment dragging (0-1). How much of the
+   * underlying wet paint the stroke shears, carries, and (for SBR) picks up
+   * into its contaminating brush reservoir.
    */
   knifeDrag: number;
+  /**
+   * Knife + SBR modes: pigment mix vibrancy (0-1). Strength of subtractive
+   * Kubelka-Munk paint mixing vs classic linear RGB blending.
+   */
+  paintVibrancy: number;
   /** SBR: paint the undercoat layer (broad flat slabs). */
   sbrUndercoat: boolean;
   /** SBR: undercoat stroke density multiplier (0.25-2). */
@@ -115,6 +121,7 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   knifeRidge: 0.6,
   knifeDryness: 0.25,
   knifeDrag: 0.45,
+  paintVibrancy: 0.65,
   sbrUndercoat: true,
   sbrUndercoatDensity: 1,
   sbrForm: true,

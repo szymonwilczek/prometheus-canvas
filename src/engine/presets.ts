@@ -63,6 +63,9 @@ export const PRESETS: Preset[] = [
       noiseScale: 8,
       knifeSize: 36,
       sbrAlignment: 0.85,
+      knifeDryness: 0.3,
+      knifeDrag: 0.5,
+      paintVibrancy: 0.7,
     },
   },
   {
@@ -90,6 +93,7 @@ export const PRESETS: Preset[] = [
       knifeRidge: 0.7,
       knifeDryness: 0.35,
       knifeDrag: 0.5,
+      paintVibrancy: 0.7,
     },
   },
   {
