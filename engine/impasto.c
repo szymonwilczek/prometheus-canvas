@@ -5,20 +5,20 @@
  * Height field is assembled from three mathematically distinct layers:
  *
  * 1. RIDGES - Sobel gradient magnitude of the painted image.
- *    After Kuwahara + flow strokes the image is piecewise-flat, so
- *    gradient energy sits exactly on stroke boundaries, where a loaded
- *    brush deposits its thickest bead of paint.
+ *    After Kuwahara + flow strokes the image is piecewise-flat, so gradient
+ *    energy sits exactly on stroke boundaries, where a loaded brush deposits
+ *    its thickest bead of paint.
  *    Two box blurs give the ridges soft flanks.
  * 2. BRISTLES - grooves scratched by individual brush hairs.
- *    Phase runs across the local stroke direction (perpendicular
- *    coordinate against the structure-tensor flow field), jittered by
- *    hash noise so hairs are irregular, amplitude gated by anisotropy
- *    so grooves exist only where there is actual directional structure.
+ *    Phase runs across the local stroke direction (perpendicular coordinate
+ *    against the structure-tensor flow field), jittered by hash noise
+ *    so hairs are irregular, amplitude gated by anisotropy so grooves
+ *    exist only where there is actual directional structure.
  * 3. CANVAS WEAVE - procedural plain-weave fabric:
- *    warp/weft threads alternate over/under on a checkerboard, each
- *    thread's crown is |sin| shaped, thread thickness jittered per-cell.
- *    Weave is attenuated where the paint ridge is thick - heavy impasto
- *    hides the canvas, thin washes reveal it, exactly like real painting.
+ *    warp/weft threads alternate over/under on a checkerboard, each thread's
+ *    crown is |sin| shaped, thread thickness jittered per-cell.
+ *    Weave is attenuated where the paint ridge is thick - heavy impasto hides
+ *    the canvas, thin washes reveal it, exactly like real painting.
  *
  * Combined field is lit per pixel by Blinn-Phong with the light direction from
  * the elevation/azimuth sliders.
@@ -74,10 +74,14 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
           mag > 1e-6f ? pc_powf(mag, 1.4f) : 0.0f;
     }
   }
-  pc_box3_blur(height, tmp, w, h);
-  pc_box3_blur(tmp, height, w, h);
+  pc_box_blur(height, tmp, w, h, 2);
+  memcpy(height, tmp, n * 4);
 
-  /* layer 2: bristle grooves along the flow field */
+  /* layer 2: bristle grooves along the flow field
+   * Tensor is taken from the *current* (post-stroke) image,
+   * not the shared pre-stroke field:
+   * quantization edges before the flow pass carry near-1 anisotropy everywhere,
+   * which floods the gate and turns grooves into full-field bars */
   if (bristle > 0.0f) {
     f32 *fx = (f32 *)pc_alloc(n * 4);
     f32 *fy = (f32 *)pc_alloc(n * 4);
@@ -93,11 +97,15 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
           /* per-region phase jitter so hairs stay irregular */
           f32 jit = pc_hash2(x >> 3, y >> 3) * PC_2PI;
           f32 groove = pc_sinf(t * GROOVE_FREQ + jit);
-          /* Fine paint granularity. */
+          /* fine paint granularity */
           f32 grain = pc_hash2(x, y) - 0.5f;
-          /* aniso^2 gates out noise-driven false structure
-           * so grooves appear only along genuine strokes */
-          f32 gate = aniso[i] * aniso[i];
+          /* Two gates:
+           * aniso^2 keeps grooves aligned with genuine directional structure,
+           * and the ridge height keeps them where paint is actually thick.
+           * Without the second gate the nearest-sampled stroke pass leaves
+           * enough micro-edges to flood the anisotropy gate across flat
+           * regions */
+          f32 gate = aniso[i] * aniso[i] * pc_minf(1.0f, height[i] * 6.0f);
           height[i] += bristle * gate * (groove * 0.035f + grain * 0.02f);
         }
       }

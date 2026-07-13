@@ -20,7 +20,7 @@ command -v wasm-ld >/dev/null 2>&1 || {
 
 mkdir -p "$(dirname "$OUT")"
 
-clang --target=wasm32 -O3 -ffast-math -nostdlib -ffreestanding -fno-builtin \
+clang --target=wasm32 -O3 -ffast-math -msimd128 -nostdlib -ffreestanding -fno-builtin \
     -Wall -Wextra -Werror \
     -Wl,--no-entry \
     -Wl,--export-all \

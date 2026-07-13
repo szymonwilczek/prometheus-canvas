@@ -72,13 +72,14 @@ static inline f32 pc_hash2(i32 x, i32 y) {
 }
 
 /* tensor.c */
-void pc_box3_blur(const f32 *src, f32 *dst, i32 w, i32 h);
+void pc_box_blur(const f32 *src, f32 *dst, i32 w, i32 h, i32 r);
 void pc_structure_tensor(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy,
                          f32 *aniso);
 
 /* pipeline stages */
 void pc_kuwahara(const u8 *src, u8 *dst, i32 w, i32 h, i32 radius, f32 q);
-void pc_flow_strokes(u8 *img, i32 w, i32 h, i32 length);
+void pc_flow_strokes(u8 *img, i32 w, i32 h, i32 length, const f32 *fx,
+                     const f32 *fy);
 void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
 void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,

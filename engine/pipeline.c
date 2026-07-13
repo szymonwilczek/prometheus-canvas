@@ -25,11 +25,26 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,
                 f32 weave_scale) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
-  /* quantize before the stroke pass:
-   * flow advection then smears the hard pigment boundaries directionally,
+  /* Quantize before the stroke pass:
+   * Flow advection then smears the hard pigment boundaries directionally,
    * turning posterization bands into brushy directional transitions */
   pc_quantize(dst, w, h, pigments);
-  pc_flow_strokes(dst, w, h, stroke_length);
+
+  /* Flow field for the stroke pass, from the pre-stroke image
+   * (the strokes must follow the geometry that exists before smearing).
+   * Bristle layer inside pc_impasto computes its own tensor from
+   * the post-stroke image, where anisotropy is meaningful. */
+  if (stroke_length > 0) {
+    usize n = (usize)w * (usize)h;
+    f32 *fx = (f32 *)pc_alloc(n * 4);
+    f32 *fy = (f32 *)pc_alloc(n * 4);
+    f32 *aniso = (f32 *)pc_alloc(n * 4);
+    if (fx && fy && aniso) {
+      pc_structure_tensor(dst, w, h, fx, fy, aniso);
+      pc_flow_strokes(dst, w, h, stroke_length, fx, fy);
+    }
+  }
+
   pc_color_adjust(dst, w, h, saturation, contrast);
   pc_impasto(dst, w, h, impasto_depth, light_elev, light_azim, specular,
              shininess, bristle, weave, weave_scale);
