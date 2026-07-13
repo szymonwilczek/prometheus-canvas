@@ -180,6 +180,26 @@ Compiled `public/wasm/prometheus.wasm` artifact is committed, so `npm run dev` w
 without a C toolchain; `build:wasm` is only needed when you modify the C sources in
 `engine/`.
 
+## Deploying (Vercel, or anywhere static)
+
+Repository is deploy-ready: `vercel.json` configures the build command, output
+directory and cache headers, and because the WASM artifact is committed, **the deploy
+machine needs no C toolchain** - Vercel just runs `npm run build` and ships static files.
+
+```sh
+npx vercel        # from the repo root; that's the whole procedure
+```
+
+Any other static host (Netlify, GitHub Pages, an nginx box, a USB stick) works the same
+way: `npm run build`, serve `dist/`. There is no server-side component whatsoever - the
+"backend" is your visitors' own CPUs.
+
+To be absolutely clear about the philosophy: hosted instance exists so that people
+don't *have* to set anything up locally. You still **can** - clone it, build it, run it
+offline forever. The hosted copy is a convenience, not a leash: it has no accounts, no
+quotas, no telemetry, and nothing to upsell. If it ever disappears, nothing is lost;
+every visitor already had the entire engine in their browser cache.
+
 ## License
 
 GPL-2.0. Take it, ship it, but keep it open. That's the point.
