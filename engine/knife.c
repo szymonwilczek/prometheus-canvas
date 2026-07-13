@@ -93,7 +93,7 @@ static f32 region_error(const u8 *canvas, const u8 *target, i32 w, i32 h,
 static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
                        f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
                        const f32 *c0, const f32 *c1, f32 thick, f32 ridge,
-                       f32 tilt, f32 dry, f32 drag, i32 sd1, i32 sd2) {
+                       f32 tilt, f32 dry, f32 drag, f32 vib, i32 sd1, i32 sd2) {
   f32 hl = len * 0.5f, hw = wid * 0.5f;
   f32 reach = hl + hw;
   i32 x0 = pc_maxi(0, (i32)(cx - reach));
@@ -136,7 +136,10 @@ static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
        * instead */
       i32 lane = (i32)((b / wid + 0.5f) * 7.0f + 16.0f);
       f32 lane_op = 0.62f + 0.38f * pc_hash2(lane * 31 + sd1, sd2);
-      f32 opacity = alpha * lane_op * (1.0f - 0.45f * u * u);
+      /* exponential paint depletion:
+       * load thins fast once the blade has spent its first push,
+       * then coasts on residue */
+      f32 opacity = alpha * lane_op * (0.55f + 0.45f * pc_expf(-1.8f * u * u));
 
       usize i = (usize)py * (usize)w + (usize)px;
 
@@ -157,31 +160,31 @@ static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
       }
 
       /* flat knife mix dragged toward the far-end sample */
-      f32 cr = c0[0] + (c1[0] - c0[0]) * u;
-      f32 cg = c0[1] + (c1[1] - c0[1]) * u;
-      f32 cb = c0[2] + (c1[2] - c0[2]) * u;
+      f32 c[3] = {c0[0] + (c1[0] - c0[0]) * u, c0[1] + (c1[1] - c0[1]) * u,
+                  c0[2] + (c1[2] - c0[2]) * u};
 
-      /* Wet-on-wet smudging:
+      /* Wet-on-wet smudging + contamination:
        * blade shears the wet layer below and carries some of it forward -
-       * re-sample the canvas few pixels upstream (against the drag direction)
-       * and fold that pigment into the load.
-       * Tail, where the knife has run out of its own paint, drags hardest */
+       * re-sample the canvas a few pixels upstream (against the drag direction)
+       * and fold that pigment into the load, mixing subtractively.
+       * Contamination rises exponentially along the stroke:
+       * at the tail the original load is depleted and the blade is mostly
+       * pushing what it picked up */
       if (drag > 0.0f) {
         i32 ux = pc_clampi((i32)((f32)px - dx * 3.0f), 0, w - 1);
         i32 uy = pc_clampi((i32)((f32)py - dy * 3.0f), 0, h - 1);
         const u8 *up = img + ((usize)uy * (usize)w + (usize)ux) * 4;
-        f32 m = drag * 0.45f * (0.35f + 0.65f * u);
-        cr += ((f32)up[0] - cr) * m;
-        cg += ((f32)up[1] - cg) * m;
-        cb += ((f32)up[2] - cb) * m;
+        f32 upf[3] = {(f32)up[0], (f32)up[1], (f32)up[2]};
+        f32 m = drag * 0.55f * (1.0f - pc_expf(-2.5f * u));
+        pc_mix_paint(c, upf, m, vib, c);
       }
 
       usize o = i * 4;
-      img[o] = pc_clamp255((f32)img[o] + (cr - (f32)img[o]) * opacity);
-      img[o + 1] =
-          pc_clamp255((f32)img[o + 1] + (cg - (f32)img[o + 1]) * opacity);
-      img[o + 2] =
-          pc_clamp255((f32)img[o + 2] + (cb - (f32)img[o + 2]) * opacity);
+      f32 cur[3] = {(f32)img[o], (f32)img[o + 1], (f32)img[o + 2]};
+      pc_mix_paint(cur, c, opacity, vib, cur);
+      img[o] = pc_clamp255(cur[0]);
+      img[o + 1] = pc_clamp255(cur[1]);
+      img[o + 2] = pc_clamp255(cur[2]);
       img[o + 3] = 255;
       /* relief follows coverage:
        * where the streak is thin the old layer's height survives -
@@ -192,7 +195,8 @@ static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
 }
 
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
-              f32 detail, f32 azim, f32 tint, f32 ridge, f32 dry, f32 drag) {
+              f32 detail, f32 azim, f32 tint, f32 ridge, f32 dry, f32 drag,
+              f32 vib) {
   if (size < 4)
     size = 4;
   if (layers < 1)
@@ -202,6 +206,7 @@ void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
   ridge = pc_clampf(ridge, 0.0f, 1.0f);
   dry = pc_clampf(dry, 0.0f, 1.0f);
   drag = pc_clampf(drag, 0.0f, 1.0f);
+  vib = pc_clampf(vib, 0.0f, 1.0f);
 
   usize n = (usize)w * (usize)h;
   u8 *target = (u8 *)pc_alloc(n * 4);
@@ -315,7 +320,7 @@ void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
             ridge * (pc_hash2(gx * 29 + seed, gy * 31 + 5) - 0.5f) * 0.8f;
 
         draw_smear(img, height, hbase, w, h, cx, cy, dx, dy, len, wid, c0, c1,
-                   thick, ridge, tilt, dry, drag, gx * 131 + seed,
+                   thick, ridge, tilt, dry, drag, vib, gx * 131 + seed,
                    gy * 197 + 3);
       }
     }

@@ -23,28 +23,44 @@
  * 1 = strokes bend fully with the contours,
  * 0 = every stroke is a straight flick
  *
- * VOLUME: alongside the color buffer every stroke writes parabolic thickness
- * profile into persistent height field - thick on the stroke spine, feathering
- * to nothing at the rim.
+ * VOLUME:
+ * Alongside the color buffer every stroke writes parabolic thickness profile
+ * into a persistent height field - thick on the stroke spine, feathering to
+ * nothing at the rim.
  * Overlaps blend max-accumulate: paint already on the canvas lifts the new
  * stroke, so crossings build physical ridges instead of averaging flat.
  *
- * BRISTLES: 1D hash noise in stroke-local coordinates (lanes across the width,
- * ticks along the drag) modulates both the color (streaks of incompletely mixed
+ * BRISTLES:
+ * 1D hash noise in stroke-local coordinates (lanes across the width, ticks
+ * along the drag) modulates both the color (streaks of incompletely mixed
  * pigment) and the height profile (grooves scratched by individual hairs).
+ *
+ * PAINT PHYSICS (shared with the knife):
+ * dry-brush skipping over the pass-start relief, wet-on-wet upstream dragging,
+ * contaminating brush reservoir with exponential load depletion, and
+ * subtractive Kubelka-Munk mixing for every color blend (pc_mix_paint).
  *
  * Deterministic: all randomness is the integer hash of grid indices.
  */
 #include "pc.h"
 
 typedef struct {
-  u8 *img;          /* canvas being painted            */
-  f32 *height;      /* accumulated paint thickness     */
-  const u8 *target; /* what the painting should become */
+  u8 *img;          /* canvas being painted             */
+  f32 *height;      /* accumulated paint thickness      */
+  const u8 *target; /* what the painting should become  */
+  const f32 *hbase; /* relief snapshot at pass start    */
   const f32 *fx, *fy, *aniso, *imp;
   i32 w, h;
   f32 bristle;
+  f32 dry;  /* dry-brush skipping threshold     */
+  f32 drag; /* wet-on-wet pigment pickup        */
+  f32 vib;  /* subtractive mixing strength      */
 } Sbr;
+
+static f32 smoothstep(f32 e0, f32 e1, f32 x) {
+  f32 t = pc_clampf((x - e0) / (e1 - e0), 0.0f, 1.0f);
+  return t * t * (3.0f - 2.0f * t);
+}
 
 /*
  * Deposit `hp` of paint at pixel i with coverage `op`.
@@ -93,13 +109,17 @@ static f32 color_dist(const f32 *c, const u8 *p) {
  * Half-pixel AA on the rim;
  * `fade` models the brush running out of paint toward the stroke tail.
  *
- * Bristle noise lives in stroke-local coordinates: `lane` is the hair index
- * across the width, `s_base + t*len` the distance dragged along the path,
- * so streaks stay glued to the stroke as it bends.
+ * Bristle noise lives in stroke-local coordinates:
+ * `lane` is the hair index across the width, `s_base + t*len` the distance
+ * dragged along the path, so streaks stay glued to the stroke as it bends.
+ *
+ * `tail` is the progress along the whole stroke (0 anchor, 1 end):
+ * wet-on-wet dragging strengthens toward the tail, where the brush has spent
+ * its own load and mostly pushes what it picked up.
  */
 static void stamp_segment(Sbr *s, f32 ax, f32 ay, f32 bx, f32 by, f32 rad,
-                          const f32 *col, f32 thick, f32 fade, f32 s_base,
-                          i32 seed) {
+                          const f32 *col, f32 thick, f32 fade, f32 tail,
+                          f32 s_base, i32 seed) {
   i32 x0 = pc_maxi(0, (i32)(pc_minf(ax, bx) - rad) - 1);
   i32 x1 = pc_mini(s->w - 1, (i32)(pc_maxf(ax, bx) + rad) + 1);
   i32 y0 = pc_maxi(0, (i32)(pc_minf(ay, by) - rad) - 1);
@@ -139,14 +159,42 @@ static void stamp_segment(Sbr *s, f32 ax, f32 ay, f32 bx, f32 by, f32 rad,
       f32 op = alpha * grain;
 
       usize i = (usize)py * (usize)s->w + (usize)px;
+
+      /* dry-brush skipping - same physics as the knife:
+       * starved brush rides the peaks of the pass-start relief
+       * (+ canvas tooth) and leaves the valleys as organic voids */
+      if (s->dry > 0.0f) {
+        f32 tooth = pc_hash2(px * 3 + 11, py * 3 + 29);
+        f32 peak =
+            pc_clampf(0.5f + (s->height[i] - s->hbase[i]) * 8.0f, 0.0f, 1.0f);
+        peak = pc_clampf(peak + (tooth - 0.5f) * 0.35f, 0.0f, 1.0f);
+        f32 dep = smoothstep(s->dry - 0.30f, s->dry + 0.15f, peak);
+        op *= 1.0f - s->dry * (1.0f - dep);
+      }
+
+      f32 c[3] = {pc_clampf(col[0] * cmod, 0.0f, 255.0f),
+                  pc_clampf(col[1] * cmod, 0.0f, 255.0f),
+                  pc_clampf(col[2] * cmod, 0.0f, 255.0f)};
+
+      /* wet-on-wet:
+       * fold in wet pigment sampled upstream along the flow direction,
+       * mixed subtractively */
+      if (s->drag > 0.0f) {
+        i32 ux = pc_clampi((i32)((f32)px - udx * 3.0f), 0, s->w - 1);
+        i32 uy = pc_clampi((i32)((f32)py - udy * 3.0f), 0, s->h - 1);
+        const u8 *up = s->img + ((usize)uy * (usize)s->w + (usize)ux) * 4;
+        f32 upf[3] = {(f32)up[0], (f32)up[1], (f32)up[2]};
+        f32 m = s->drag * 0.45f * (0.25f + 0.75f * tail);
+        pc_mix_paint(c, upf, m, s->vib, c);
+      }
+
       usize o = i * 4;
       u8 *im = s->img;
-      f32 cr = pc_clampf(col[0] * cmod, 0.0f, 255.0f);
-      f32 cg = pc_clampf(col[1] * cmod, 0.0f, 255.0f);
-      f32 cb = pc_clampf(col[2] * cmod, 0.0f, 255.0f);
-      im[o] = pc_clamp255((f32)im[o] + (cr - (f32)im[o]) * op);
-      im[o + 1] = pc_clamp255((f32)im[o + 1] + (cg - (f32)im[o + 1]) * op);
-      im[o + 2] = pc_clamp255((f32)im[o + 2] + (cb - (f32)im[o + 2]) * op);
+      f32 cur[3] = {(f32)im[o], (f32)im[o + 1], (f32)im[o + 2]};
+      pc_mix_paint(cur, c, op, s->vib, cur);
+      im[o] = pc_clamp255(cur[0]);
+      im[o + 1] = pc_clamp255(cur[1]);
+      im[o + 2] = pc_clamp255(cur[2]);
       im[o + 3] = 255;
 
       /* parabolic bead cross-section, tail keeps most of its body */
@@ -190,16 +238,42 @@ static void stamp_slab(Sbr *s, f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
       f32 lane_op = 0.85f + 0.15f * lane_n;
       f32 op = alpha * lane_op;
 
-      usize i = (usize)py * (usize)s->w + (usize)px;
-      usize o = i * 4;
-      u8 *im = s->img;
-      im[o] = pc_clamp255((f32)im[o] + (col[0] - (f32)im[o]) * op);
-      im[o + 1] = pc_clamp255((f32)im[o + 1] + (col[1] - (f32)im[o + 1]) * op);
-      im[o + 2] = pc_clamp255((f32)im[o + 2] + (col[2] - (f32)im[o + 2]) * op);
-      im[o + 3] = 255;
-
       f32 u = a / len + 0.5f;    /* 0 where the knife lands, 1 lift-off */
       f32 vn = pc_fabsf(b) / hw; /* 0 center, 1 long edge               */
+
+      usize i = (usize)py * (usize)s->w + (usize)px;
+
+      /* dry-brush skipping over the pass-start relief + canvas tooth */
+      if (s->dry > 0.0f) {
+        f32 tooth = pc_hash2(px * 3 + 11, py * 3 + 29);
+        f32 peak =
+            pc_clampf(0.5f + (s->height[i] - s->hbase[i]) * 8.0f, 0.0f, 1.0f);
+        peak = pc_clampf(peak + (tooth - 0.5f) * 0.35f, 0.0f, 1.0f);
+        f32 dep = smoothstep(s->dry - 0.30f, s->dry + 0.15f, peak);
+        op *= 1.0f - s->dry * (1.0f - dep);
+      }
+
+      f32 c[3] = {col[0], col[1], col[2]};
+
+      /* wet-on-wet: the slab shears whatever wet layer sits upstream */
+      if (s->drag > 0.0f) {
+        i32 ux = pc_clampi((i32)((f32)px - dx * 3.0f), 0, s->w - 1);
+        i32 uy = pc_clampi((i32)((f32)py - dy * 3.0f), 0, s->h - 1);
+        const u8 *up = s->img + ((usize)uy * (usize)s->w + (usize)ux) * 4;
+        f32 upf[3] = {(f32)up[0], (f32)up[1], (f32)up[2]};
+        f32 m = s->drag * 0.45f * (0.25f + 0.75f * u);
+        pc_mix_paint(c, upf, m, s->vib, c);
+      }
+
+      usize o = i * 4;
+      u8 *im = s->img;
+      f32 cur[3] = {(f32)im[o], (f32)im[o + 1], (f32)im[o + 2]};
+      pc_mix_paint(cur, c, op, s->vib, cur);
+      im[o] = pc_clamp255(cur[0]);
+      im[o + 1] = pc_clamp255(cur[1]);
+      im[o + 2] = pc_clamp255(cur[2]);
+      im[o + 3] = 255;
+
       f32 hp = thick * (0.80f + 0.20f * u) * (1.0f - 0.10f * vn * vn) *
                (0.9f + 0.2f * s->bristle * (lane_n - 0.5f));
       deposit(s, i, hp, thick, op);
@@ -210,11 +284,18 @@ static void stamp_slab(Sbr *s, f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
 /*
  * Trace one stroke from an anchor and stamp it segment by segment.
  *
- * Path re-reads the flow field every `rad` pixels (with sign continuity, so
- * the stroke never doubles back on itself) and blends the new field direction
- * against straight continuation by `alignment`.
- * Termination: length budget, canvas edge, or the target color under the brush
- * drifting too far from the load of paint the stroke carries.
+ * Path re-reads the flow field every `rad` pixels (with sign continuity,
+ * so the stroke never doubles back on itself) and blends the new field
+ * direction against straight continuation by `alignment`.
+ * Termination: length budget, canvas edge, or the target color under
+ * the brush drifting too far from the load of paint the stroke carries.
+ *
+ * BRUSH STATE:
+ * Load is a live reservoir. Every step the brush picks up wet pigment from
+ * the canvas under its heel (subtractive contamination, so the original color's
+ * contribution decays geometrically), and the deposit opacity depletes
+ * exponentially along the path - stroke starts opaque with clean paint and ends
+ * thin with whatever the bristles gathered on the way.
  */
 static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
                          f32 alignment, f32 thick, f32 fbx, f32 fby, i32 seed) {
@@ -237,6 +318,7 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
   f32 step = pc_maxf(1.0f, rad);
   f32 px = x0, py = y0;
   f32 dragged = 0.0f; /* along-path distance, anchors the bristle noise */
+  f32 res[3] = {col[0], col[1], col[2]}; /* paint actually on the brush */
   i32 pts = 1;
 
   for (; pts < max_pts; pts++) {
@@ -251,8 +333,20 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
     if (color_dist(col, s->target + q * 4) > 55.0f)
       break;
 
-    f32 fade = 1.0f - 0.35f * (f32)pts / (f32)max_pts;
-    stamp_segment(s, px, py, nx, ny, rad, col, thick, fade, dragged,
+    /* contamination:
+     * pick up wet canvas paint under the heel before this segment goes down */
+    if (s->drag > 0.0f) {
+      i32 hx = pc_clampi((i32)px, 0, s->w - 1);
+      i32 hy = pc_clampi((i32)py, 0, s->h - 1);
+      const u8 *cv = s->img + ((usize)hy * (usize)s->w + (usize)hx) * 4;
+      f32 cvf[3] = {(f32)cv[0], (f32)cv[1], (f32)cv[2]};
+      pc_mix_paint(res, cvf, s->drag * 0.30f, s->vib, res);
+    }
+
+    f32 tail = (f32)pts / (f32)max_pts;
+    /* exponential depletion of the load */
+    f32 fade = 0.55f + 0.45f * pc_expf(-2.0f * tail);
+    stamp_segment(s, px, py, nx, ny, rad, res, thick, fade, tail, dragged,
                   seed + pts * 97);
     dragged += step;
     px = nx;
@@ -276,21 +370,24 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
 
   /* boundary right at the anchor: still leave one dab of paint */
   if (pts == 1)
-    stamp_segment(s, x0, y0, x0, y0, rad, col, thick, 1.0f, 0.0f, seed);
+    stamp_segment(s, x0, y0, x0, y0, rad, col, thick, 1.0f, 0.0f, 0.0f, seed);
 }
 
 /*
  * Paint the canvas in three passes, bottom to top.
  * `undercoat`, `form` and `detail` are per-pass stroke density multipliers;
  * 0 skips the pass entirely.
- * `size` is the undercoat slab size in px;
- * the finer passes derive their brush radii from it.
+ * `size` is the undercoat slab size in px; the finer passes derive their brush
+ * radii from it.
  * `height` (w*h f32, caller- allocated) receives the accumulated paint
  * thickness for relief shading;
  * `bristle` scales the hair-lane color/height modulation.
+ * `dry`/`drag`/`vib` are the shared paint physics: dry-brush skipping
+ * threshold, wet-on-wet pickup, and subtractive mixing strength.
  */
 void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
-            f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim) {
+            f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim, f32 dry,
+            f32 drag, f32 vib) {
   if (size < 8)
     size = 8;
   alignment = pc_clampf(alignment, 0.0f, 1.0f);
@@ -301,15 +398,29 @@ void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
   f32 *fy = (f32 *)pc_alloc(n * 4);
   f32 *aniso = (f32 *)pc_alloc(n * 4);
   f32 *imp = (f32 *)pc_alloc(n * 4);
-  if (!target || !fx || !fy || !aniso || !imp)
+  f32 *hbase = (f32 *)pc_alloc(n * 4);
+  if (!target || !fx || !fy || !aniso || !imp || !hbase)
     return;
 
   memcpy(target, img, n * 4);
   memset(height, 0, n * 4);
+  memset(hbase, 0, n * 4);
   pc_sbr_field(target, w, h, fx, fy, aniso, imp);
 
-  Sbr s = {img,   height, target, fx, fy,
-           aniso, imp,    w,      h,  pc_clampf(bristle, 0.0f, 1.0f)};
+  Sbr s = {img,
+           height,
+           target,
+           hbase,
+           fx,
+           fy,
+           aniso,
+           imp,
+           w,
+           h,
+           pc_clampf(bristle, 0.0f, 1.0f),
+           pc_clampf(dry, 0.0f, 1.0f),
+           pc_clampf(drag, 0.0f, 1.0f),
+           pc_clampf(vib, 0.0f, 1.0f)};
 
   /* flat-region strokes follow the light,
    * like painter working the sky in one consistent sweep */
@@ -355,7 +466,9 @@ void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
     }
   }
 
-  /* pass 2: form - medium strokes traced along the flow */
+  /* pass 2: form - medium strokes traced along the flow
+   * refresh the skipping topography: this pass rides the undercoat */
+  pc_box_blur(height, hbase, w, h, 2);
   if (form > 0.01f) {
     f32 dens = pc_clampf(form, 0.25f, 2.0f);
     f32 rad = pc_maxf(2.0f, (f32)size / 4.0f);
@@ -381,7 +494,9 @@ void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
     }
   }
 
-  /* pass 3: detail - micro-strokes only where the image earns them */
+  /* pass 3: detail - micro-strokes only where the image earns them
+   * skipping topography now includes the form layer's ridges */
+  pc_box_blur(height, hbase, w, h, 2);
   if (detail > 0.01f) {
     f32 dens = pc_clampf(detail, 0.25f, 2.0f);
     f32 rad = pc_maxf(1.0f, (f32)size / 10.0f);
