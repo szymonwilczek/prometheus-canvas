@@ -76,11 +76,26 @@ export function ControlsPanel({
       </Button>
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-sm">Brush — Kuwahara</CardTitle>
+          <CardTitle className="text-sm">Renderer</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs">Mode</Label>
+            <Select
+              value={params.mode}
+              onValueChange={(v) => set("mode", v as PaintParams["mode"])}
+            >
+              <SelectTrigger size="sm" className="w-40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="brush">Brush strokes</SelectItem>
+                <SelectItem value="knife">Palette knife</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           <ParamSlider
-            label="Brush radius"
+            label="Smoothing radius"
             value={params.kuwaharaRadius}
             min={0}
             max={30}
@@ -95,14 +110,35 @@ export function ControlsPanel({
             step={0.5}
             onChange={(v) => set("edgeQ", v)}
           />
-          <ParamSlider
-            label="Stroke length (flow)"
-            value={params.strokeLength}
-            min={0}
-            max={20}
-            unit="px"
-            onChange={(v) => set("strokeLength", v)}
-          />
+          {params.mode === "brush" ? (
+            <ParamSlider
+              label="Stroke length (flow)"
+              value={params.strokeLength}
+              min={0}
+              max={20}
+              unit="px"
+              onChange={(v) => set("strokeLength", v)}
+            />
+          ) : (
+            <>
+              <ParamSlider
+                label="Knife size"
+                value={params.knifeSize}
+                min={12}
+                max={72}
+                unit="px"
+                onChange={(v) => set("knifeSize", v)}
+              />
+              <ParamSlider
+                label="Knife detail"
+                value={params.knifeDetail}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("knifeDetail", v)}
+              />
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -205,14 +241,16 @@ export function ControlsPanel({
             step={0.05}
             onChange={(v) => set("cavity", v)}
           />
-          <ParamSlider
-            label="Bristle grooves"
-            value={params.bristle}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => set("bristle", v)}
-          />
+          {params.mode === "brush" && (
+            <ParamSlider
+              label="Bristle grooves"
+              value={params.bristle}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => set("bristle", v)}
+            />
+          )}
           <ParamSlider
             label="Canvas weave"
             value={params.canvasWeave}
