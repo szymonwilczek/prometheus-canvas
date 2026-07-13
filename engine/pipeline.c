@@ -36,10 +36,14 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     /* Multi-scale SBR:
      * image is repainted bottom-to-top from traced vector strokes
      * (undercoat slabs -> flow-following form strokes -> importance-gated
-     * micro-detail);
-     * per-pixel texture stages do not apply */
-    pc_sbr(dst, w, h, knife_size, sbr_undercoat, sbr_form, sbr_detail,
-           sbr_alignment, light_azim);
+     * micro-detail), each stroke writing parabolic thickness profile into
+     * persistent height field; the per-pixel texture stages do not apply */
+    usize n = (usize)w * (usize)h;
+    f32 *height = (f32 *)pc_alloc(n * 4);
+    if (!height)
+      return;
+    pc_sbr(dst, height, w, h, knife_size, sbr_undercoat, sbr_form, sbr_detail,
+           sbr_alignment, bristle, light_azim);
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     return;

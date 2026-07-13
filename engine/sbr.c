@@ -23,16 +23,41 @@
  * 1 = strokes bend fully with the contours,
  * 0 = every stroke is a straight flick
  *
+ * VOLUME: alongside the color buffer every stroke writes parabolic thickness
+ * profile into persistent height field - thick on the stroke spine, feathering
+ * to nothing at the rim.
+ * Overlaps blend max-accumulate: paint already on the canvas lifts the new
+ * stroke, so crossings build physical ridges instead of averaging flat.
+ *
+ * BRISTLES: 1D hash noise in stroke-local coordinates (lanes across the width,
+ * ticks along the drag) modulates both the color (streaks of incompletely mixed
+ * pigment) and the height profile (grooves scratched by individual hairs).
+ *
  * Deterministic: all randomness is the integer hash of grid indices.
  */
 #include "pc.h"
 
 typedef struct {
   u8 *img;          /* canvas being painted            */
+  f32 *height;      /* accumulated paint thickness     */
   const u8 *target; /* what the painting should become */
   const f32 *fx, *fy, *aniso, *imp;
   i32 w, h;
+  f32 bristle;
 } Sbr;
+
+/*
+ * Deposit `hp` of paint at pixel i with coverage `op`.
+ * Max-accumulate: existing paint boosts the incoming stroke by up to 30% of its
+ * body, so overlapping strokes ridge up instead of replacing each other, while
+ * thin glaze can never dig a hole into thick layer below.
+ */
+static void deposit(Sbr *s, usize i, f32 hp, f32 thick, f32 op) {
+  f32 hcur = s->height[i];
+  f32 ridge = hp * (1.0f + 0.30f * pc_minf(hcur / (thick + 1e-3f), 1.0f));
+  f32 nh = pc_maxf(hcur, ridge);
+  s->height[i] = hcur + (nh - hcur) * op;
+}
 
 /* mean target color over a sparse 3x3 sample cross of radius r */
 static void sample_color(const u8 *src, i32 w, i32 h, i32 cx, i32 cy, i32 r,
@@ -61,14 +86,20 @@ static f32 color_dist(const f32 *c, const u8 *p) {
 }
 
 /*
- * One capsule segment of traced stroke:
- * every pixel within `rad` of the segment [a, b] takes the stroke color.
+ * One capsule segment of a traced stroke:
+ * every pixel within `rad` of the segment [a, b] takes the stroke color
+ * and parabolic thickness profile - `thick` on the spine, zero at the rim,
+ * exactly the cross-section of bead of paint squeezed under a round brush.
  * Half-pixel AA on the rim;
- * per-pixel hash grain keeps the coverage from reading as vector fill.
  * `fade` models the brush running out of paint toward the stroke tail.
+ *
+ * Bristle noise lives in stroke-local coordinates: `lane` is the hair index
+ * across the width, `s_base + t*len` the distance dragged along the path,
+ * so streaks stay glued to the stroke as it bends.
  */
 static void stamp_segment(Sbr *s, f32 ax, f32 ay, f32 bx, f32 by, f32 rad,
-                          const f32 *col, f32 fade, i32 seed) {
+                          const f32 *col, f32 thick, f32 fade, f32 s_base,
+                          i32 seed) {
   i32 x0 = pc_maxi(0, (i32)(pc_minf(ax, bx) - rad) - 1);
   i32 x1 = pc_mini(s->w - 1, (i32)(pc_maxf(ax, bx) + rad) + 1);
   i32 y0 = pc_maxi(0, (i32)(pc_minf(ay, by) - rad) - 1);
@@ -76,7 +107,11 @@ static void stamp_segment(Sbr *s, f32 ax, f32 ay, f32 bx, f32 by, f32 rad,
 
   f32 dx = bx - ax, dy = by - ay;
   f32 len2 = dx * dx + dy * dy;
+  f32 len = pc_sqrtf(len2);
   f32 inv_len2 = len2 > 1e-6f ? 1.0f / len2 : 0.0f;
+  f32 udx = len > 1e-3f ? dx / len : 1.0f;
+  f32 udy = len > 1e-3f ? dy / len : 0.0f;
+  f32 inv_rad = 1.0f / rad;
 
   for (i32 py = y0; py <= y1; py++) {
     for (i32 px = x0; px <= x1; px++) {
@@ -90,27 +125,48 @@ static void stamp_segment(Sbr *s, f32 ax, f32 ay, f32 bx, f32 by, f32 rad,
         continue;
       f32 alpha = pc_minf(cov, 1.0f) * fade;
 
+      /* bristle noise: one value per hair lane, one per drag tick */
+      f32 b = -rx * udy + ry * udx; /* signed across-stroke offset */
+      i32 lane = (i32)(b * inv_rad * 3.0f + 16.0f);
+      f32 ln = pc_hash2(lane * 37 + seed, seed) - 0.5f;
+      f32 tick =
+          pc_hash2((i32)((s_base + t * len) * 0.5f), lane * 7 + seed) - 0.5f;
+      f32 cmod = 1.0f + s->bristle * (0.28f * ln + 0.14f * tick);
+      f32 hmod = 1.0f + s->bristle * (0.45f * ln + 0.25f * tick);
+
       /* bristled coverage grain: paint never lays down evenly */
       f32 grain = 0.82f + 0.18f * pc_hash2(px + seed, py - seed);
       f32 op = alpha * grain;
 
-      usize o = ((usize)py * (usize)s->w + (usize)px) * 4;
+      usize i = (usize)py * (usize)s->w + (usize)px;
+      usize o = i * 4;
       u8 *im = s->img;
-      im[o] = pc_clamp255((f32)im[o] + (col[0] - (f32)im[o]) * op);
-      im[o + 1] = pc_clamp255((f32)im[o + 1] + (col[1] - (f32)im[o + 1]) * op);
-      im[o + 2] = pc_clamp255((f32)im[o + 2] + (col[2] - (f32)im[o + 2]) * op);
+      f32 cr = pc_clampf(col[0] * cmod, 0.0f, 255.0f);
+      f32 cg = pc_clampf(col[1] * cmod, 0.0f, 255.0f);
+      f32 cb = pc_clampf(col[2] * cmod, 0.0f, 255.0f);
+      im[o] = pc_clamp255((f32)im[o] + (cr - (f32)im[o]) * op);
+      im[o + 1] = pc_clamp255((f32)im[o + 1] + (cg - (f32)im[o + 1]) * op);
+      im[o + 2] = pc_clamp255((f32)im[o + 2] + (cb - (f32)im[o + 2]) * op);
       im[o + 3] = 255;
+
+      /* parabolic bead cross-section, tail keeps most of its body */
+      f32 q = 1.0f - (d * inv_rad) * (d * inv_rad);
+      if (q > 0.0f) {
+        f32 hp = thick * q * hmod * (0.70f + 0.30f * fade);
+        deposit(s, i, hp, thick, op);
+      }
     }
   }
 }
 
-/*
- * Undercoat slab:
- * one flat oriented rectangle of paint, streaked along the drag direction
- * in hash-jittered lanes like loaded knife pass.
+/* Undercoat slab:
+ * One flat oriented rectangle of paint, streaked along the drag direction in
+ * hash - jittered lanes like a loaded knife pass.
+ * Relief is nearly flat plate, gently thickening toward the lift -
+ * off end and doming slightly across the width.
  */
 static void stamp_slab(Sbr *s, f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
-                       const f32 *col, i32 sd) {
+                       const f32 *col, f32 thick, i32 sd) {
   f32 hl = len * 0.5f, hw = wid * 0.5f;
   f32 reach = hl + hw;
   i32 x0 = pc_maxi(0, (i32)(cx - reach));
@@ -130,15 +186,23 @@ static void stamp_slab(Sbr *s, f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
       f32 alpha = pc_clampf(cov + 0.5f, 0.0f, 1.0f);
 
       i32 lane = (i32)((b / wid + 0.5f) * 5.0f + 16.0f);
-      f32 lane_op = 0.85f + 0.15f * pc_hash2(lane * 31 + sd, sd);
+      f32 lane_n = pc_hash2(lane * 31 + sd, sd);
+      f32 lane_op = 0.85f + 0.15f * lane_n;
       f32 op = alpha * lane_op;
 
-      usize o = ((usize)py * (usize)s->w + (usize)px) * 4;
+      usize i = (usize)py * (usize)s->w + (usize)px;
+      usize o = i * 4;
       u8 *im = s->img;
       im[o] = pc_clamp255((f32)im[o] + (col[0] - (f32)im[o]) * op);
       im[o + 1] = pc_clamp255((f32)im[o + 1] + (col[1] - (f32)im[o + 1]) * op);
       im[o + 2] = pc_clamp255((f32)im[o + 2] + (col[2] - (f32)im[o + 2]) * op);
       im[o + 3] = 255;
+
+      f32 u = a / len + 0.5f;    /* 0 where the knife lands, 1 lift-off */
+      f32 vn = pc_fabsf(b) / hw; /* 0 center, 1 long edge               */
+      f32 hp = thick * (0.80f + 0.20f * u) * (1.0f - 0.10f * vn * vn) *
+               (0.9f + 0.2f * s->bristle * (lane_n - 0.5f));
+      deposit(s, i, hp, thick, op);
     }
   }
 }
@@ -153,7 +217,7 @@ static void stamp_slab(Sbr *s, f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
  * drifting too far from the load of paint the stroke carries.
  */
 static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
-                         f32 alignment, f32 fbx, f32 fby, i32 seed) {
+                         f32 alignment, f32 thick, f32 fbx, f32 fby, i32 seed) {
   i32 ix = pc_clampi((i32)x0, 0, s->w - 1);
   i32 iy = pc_clampi((i32)y0, 0, s->h - 1);
 
@@ -172,6 +236,7 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
 
   f32 step = pc_maxf(1.0f, rad);
   f32 px = x0, py = y0;
+  f32 dragged = 0.0f; /* along-path distance, anchors the bristle noise */
   i32 pts = 1;
 
   for (; pts < max_pts; pts++) {
@@ -187,7 +252,9 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
       break;
 
     f32 fade = 1.0f - 0.35f * (f32)pts / (f32)max_pts;
-    stamp_segment(s, px, py, nx, ny, rad, col, fade, seed + pts * 97);
+    stamp_segment(s, px, py, nx, ny, rad, col, thick, fade, dragged,
+                  seed + pts * 97);
+    dragged += step;
     px = nx;
     py = ny;
 
@@ -209,7 +276,7 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
 
   /* boundary right at the anchor: still leave one dab of paint */
   if (pts == 1)
-    stamp_segment(s, x0, y0, x0, y0, rad, col, 1.0f, seed);
+    stamp_segment(s, x0, y0, x0, y0, rad, col, thick, 1.0f, 0.0f, seed);
 }
 
 /*
@@ -218,9 +285,12 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
  * 0 skips the pass entirely.
  * `size` is the undercoat slab size in px;
  * the finer passes derive their brush radii from it.
+ * `height` (w*h f32, caller- allocated) receives the accumulated paint
+ * thickness for relief shading;
+ * `bristle` scales the hair-lane color/height modulation.
  */
-void pc_sbr(u8 *img, i32 w, i32 h, i32 size, f32 undercoat, f32 form,
-            f32 detail, f32 alignment, f32 azim) {
+void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
+            f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim) {
   if (size < 8)
     size = 8;
   alignment = pc_clampf(alignment, 0.0f, 1.0f);
@@ -235,9 +305,11 @@ void pc_sbr(u8 *img, i32 w, i32 h, i32 size, f32 undercoat, f32 form,
     return;
 
   memcpy(target, img, n * 4);
+  memset(height, 0, n * 4);
   pc_sbr_field(target, w, h, fx, fy, aniso, imp);
 
-  Sbr s = {img, target, fx, fy, aniso, imp, w, h};
+  Sbr s = {img,   height, target, fx, fy,
+           aniso, imp,    w,      h,  pc_clampf(bristle, 0.0f, 1.0f)};
 
   /* flat-region strokes follow the light,
    * like painter working the sky in one consistent sweep */
@@ -276,7 +348,9 @@ void pc_sbr(u8 *img, i32 w, i32 h, i32 size, f32 undercoat, f32 form,
 
         f32 col[3];
         sample_color(target, w, h, icx, icy, size / 2, col);
-        stamp_slab(&s, cx, cy, dx, dy, len, wid, col, gx * 131 + gy * 197);
+        f32 thick = 0.25f + 0.10f * pc_hash2(gx * 13 + 101, gy * 17);
+        stamp_slab(&s, cx, cy, dx, dy, len, wid, col, thick,
+                   gx * 131 + gy * 197);
       }
     }
   }
@@ -300,7 +374,8 @@ void pc_sbr(u8 *img, i32 w, i32 h, i32 size, f32 undercoat, f32 form,
         f32 fbx = ldx * cw - ldy * sw;
         f32 fby = ldx * sw + ldy * cw;
 
-        paint_stroke(&s, cx, cy, rad, 10, alignment, fbx, fby,
+        f32 thick = 0.45f + 0.15f * pc_hash2(gx * 13 + 211, gy * 17);
+        paint_stroke(&s, cx, cy, rad, 10, alignment, thick, fbx, fby,
                      gx * 613 + gy * 769 + 211);
       }
     }
@@ -330,9 +405,19 @@ void pc_sbr(u8 *img, i32 w, i32 h, i32 size, f32 undercoat, f32 form,
         f32 fbx = ldx * cw - ldy * sw;
         f32 fby = ldx * sw + ldy * cw;
 
-        paint_stroke(&s, cx, cy, rad, 6, alignment, fbx, fby,
+        f32 thick = 0.60f + 0.15f * pc_hash2(gx * 13 + 307, gy * 17);
+        paint_stroke(&s, cx, cy, rad, 6, alignment, thick, fbx, fby,
                      gx * 419 + gy * 523 + 307);
       }
     }
+  }
+
+  /* soften the relief only (colors keep their painted edges):
+   * two radius-1 passes round stroke ridges into slopes the light
+   * can rake across instead of one-pixel cliffs */
+  f32 *tmp = (f32 *)pc_alloc(n * 4);
+  if (tmp) {
+    pc_box_blur(height, tmp, w, h, 1);
+    pc_box_blur(tmp, height, w, h, 1);
   }
 }
