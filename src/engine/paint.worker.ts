@@ -39,6 +39,9 @@ interface EngineExports {
     sbrForm: number,
     sbrDetail: number,
     sbrAlignment: number,
+    knifeRidge: number,
+    knifeDryness: number,
+    knifeDrag: number,
   ): void;
   pc_upscale(
     src: number,
@@ -116,6 +119,9 @@ function handle(req: WorkerRequest): void {
     p.sbrForm ? p.sbrFormDensity : 0,
     p.sbrDetail ? p.sbrDetailDensity : 0,
     p.sbrAlignment,
+    p.knifeRidge,
+    p.knifeDryness,
+    p.knifeDrag,
   );
 
   if (out) {

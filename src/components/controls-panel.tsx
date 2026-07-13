@@ -140,6 +140,30 @@ export function ControlsPanel({
                 step={0.05}
                 onChange={(v) => set("knifeDetail", v)}
               />
+              <ParamSlider
+                label="Blade edge ridges"
+                value={params.knifeRidge}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("knifeRidge", v)}
+              />
+              <ParamSlider
+                label="Paint dryness (skipping)"
+                value={params.knifeDryness}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("knifeDryness", v)}
+              />
+              <ParamSlider
+                label="Pigment dragging"
+                value={params.knifeDrag}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("knifeDrag", v)}
+              />
             </>
           )}
           {params.mode === "sbr" && (

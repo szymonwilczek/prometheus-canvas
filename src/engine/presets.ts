@@ -87,6 +87,9 @@ export const PRESETS: Preset[] = [
       noiseScale: 10,
       knifeSize: 40,
       knifeDetail: 0.65,
+      knifeRidge: 0.7,
+      knifeDryness: 0.35,
+      knifeDrag: 0.5,
     },
   },
   {
