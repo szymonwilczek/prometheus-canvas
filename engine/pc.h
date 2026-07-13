@@ -82,6 +82,7 @@ void pc_flow_strokes(u8 *img, i32 w, i32 h, i32 length, const f32 *fx,
                      const f32 *fy);
 void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
+void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out);
 void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
 void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,

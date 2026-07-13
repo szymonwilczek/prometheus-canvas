@@ -1,5 +1,5 @@
 /*
- * Saturation/contrast and pigment mixing noise.
+ * Saturation/contrast, pigment mixing noise, and subtractive paint mixing.
  *
  * Saturation scales chroma around the Rec.601 luma axis:
  *   out = luma + (in - luma) * s
@@ -11,8 +11,53 @@
  * two-octave value noise modulates luminance few percent, at the spatial scale
  * of a brush load of paint.
  * It is what keeps large single-pigment areas from reading as flat plastic.
+ *
+ * PAINT MIXING is not light mixing. Averaging RGB is what screens do;
+ * pigments *absorb* - two wet paints meeting on canvas mix subtractively,
+ * and linear interpolation drags every transition through digital gray.
+ * pc_mix_paint interpolates per channel in Kubelka-Munk absorption/scattering
+ * space instead:
+ *
+ *   K/S = (1 - R)^2 / (2R)      reflectance -> absorption ratio
+ *   K/S mixes linearly by pigment concentration
+ *   R   = 1 + K/S - sqrt((K/S)^2 + 2 K/S)   back to reflectance
+ *
+ * K/S curve is hyperbolic in darkness, so dark pigment dominates the mix the
+ * way real paint does, mid-mixes hold their chroma, and stroke overlaps read
+ * as wet paint instead of alpha compositing. `vibrancy` fades the model in over
+ * plain linear RGB.
  */
 #include "pc.h"
+
+/* reflectance in (0,1) -> Kubelka-Munk absorption/scattering ratio */
+static inline f32 km_ks(f32 r) {
+  f32 rr = pc_clampf(r, 0.004f, 0.996f);
+  return (1.0f - rr) * (1.0f - rr) / (2.0f * rr);
+}
+
+/* absorption/scattering ratio -> reflectance */
+static inline f32 km_r(f32 ks) {
+  return 1.0f + ks - pc_sqrtf(ks * ks + 2.0f * ks);
+}
+
+/*
+ * Mix paint `b` into paint `a` at concentration t
+ * (both 0-255 RGB, result in out, out may alias a)
+ * vibrancy 0 = plain linear RGB, 1 = full subtractive Kubelka-Munk
+ */
+void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out) {
+  for (i32 k = 0; k < 3; k++) {
+    f32 lin = a[k] + (b[k] - a[k]) * t;
+    if (vibrancy > 0.0f) {
+      f32 ks = km_ks(a[k] * (1.0f / 255.0f)) * (1.0f - t) +
+               km_ks(b[k] * (1.0f / 255.0f)) * t;
+      f32 sub = km_r(ks) * 255.0f;
+      out[k] = lin + (sub - lin) * vibrancy;
+    } else {
+      out[k] = lin;
+    }
+  }
+}
 
 /* bilinear value noise from the integer hash, smoothstep-interpolated */
 static f32 vnoise(f32 x, f32 y) {
