@@ -93,6 +93,11 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
                      f32 elev, f32 azim, f32 specular, i32 shininess,
                      f32 cavity);
 
+/* field.c */
+void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);
+void pc_sbr_field(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy, f32 *aniso,
+                  f32 *imp);
+
 /* knife.c */
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
               f32 detail, f32 azim, f32 tint);
