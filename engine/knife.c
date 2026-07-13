@@ -41,6 +41,27 @@ static f32 smoothstep(f32 e0, f32 e1, f32 x) {
   return t * t * (3.0f - 2.0f * t);
 }
 
+/*
+ * Pigment fringe:
+ * bristles and the blade edge push the densest pigment particles to the stroke
+ * margin.
+ * Just inside the AA rim the paint runs darker and slightly *more* saturated -
+ * luminance drops while chroma gains - which is what draws the organic dark
+ * halo around every overlapping stroke.
+ * `vn` is the lateral coordinate (0 spine, 1 rim).
+ */
+static void apply_fringe(f32 *c, f32 vn, f32 fringe) {
+  f32 fr = fringe * smoothstep(0.72f, 0.90f, vn) *
+           (1.0f - smoothstep(0.93f, 1.0f, vn));
+  if (fr <= 0.0f)
+    return;
+  f32 l = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
+  for (i32 k = 0; k < 3; k++)
+    c[k] =
+        pc_clampf((l + (c[k] - l) * (1.0f + 0.35f * fr)) * (1.0f - 0.28f * fr),
+                  0.0f, 255.0f);
+}
+
 /* mean target color over sparse 3x3 sample cross of radius r */
 static void sample_color(const u8 *src, i32 w, i32 h, i32 cx, i32 cy, i32 r,
                          f32 *out) {
@@ -93,7 +114,8 @@ static f32 region_error(const u8 *canvas, const u8 *target, i32 w, i32 h,
 static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
                        f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
                        const f32 *c0, const f32 *c1, f32 thick, f32 ridge,
-                       f32 tilt, f32 dry, f32 drag, f32 vib, i32 sd1, i32 sd2) {
+                       f32 tilt, f32 dry, f32 drag, f32 vib, f32 fringe,
+                       i32 sd1, i32 sd2) {
   f32 hl = len * 0.5f, hw = wid * 0.5f;
   f32 reach = hl + hw;
   i32 x0 = pc_maxi(0, (i32)(cx - reach));
@@ -179,6 +201,9 @@ static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
         pc_mix_paint(c, upf, m, vib, c);
       }
 
+      /* dark pigment halo at the lateral margin, then mix as paint */
+      apply_fringe(c, vn, fringe);
+
       usize o = i * 4;
       f32 cur[3] = {(f32)img[o], (f32)img[o + 1], (f32)img[o + 2]};
       pc_mix_paint(cur, c, opacity, vib, cur);
@@ -196,7 +221,7 @@ static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
 
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
               f32 detail, f32 azim, f32 tint, f32 ridge, f32 dry, f32 drag,
-              f32 vib) {
+              f32 vib, f32 fringe) {
   if (size < 4)
     size = 4;
   if (layers < 1)
@@ -207,6 +232,7 @@ void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
   dry = pc_clampf(dry, 0.0f, 1.0f);
   drag = pc_clampf(drag, 0.0f, 1.0f);
   vib = pc_clampf(vib, 0.0f, 1.0f);
+  fringe = pc_clampf(fringe, 0.0f, 1.0f);
 
   usize n = (usize)w * (usize)h;
   u8 *target = (u8 *)pc_alloc(n * 4);
@@ -320,7 +346,7 @@ void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
             ridge * (pc_hash2(gx * 29 + seed, gy * 31 + 5) - 0.5f) * 0.8f;
 
         draw_smear(img, height, hbase, w, h, cx, cy, dx, dy, len, wid, c0, c1,
-                   thick, ridge, tilt, dry, drag, vib, gx * 131 + seed,
+                   thick, ridge, tilt, dry, drag, vib, fringe, gx * 131 + seed,
                    gy * 197 + 3);
       }
     }

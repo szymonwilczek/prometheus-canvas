@@ -52,14 +52,33 @@ typedef struct {
   const f32 *fx, *fy, *aniso, *imp;
   i32 w, h;
   f32 bristle;
-  f32 dry;  /* dry-brush skipping threshold     */
-  f32 drag; /* wet-on-wet pigment pickup        */
-  f32 vib;  /* subtractive mixing strength      */
+  f32 dry;    /* dry-brush skipping threshold     */
+  f32 drag;   /* wet-on-wet pigment pickup        */
+  f32 vib;    /* subtractive mixing strength      */
+  f32 fringe; /* pigment halo at stroke margins   */
 } Sbr;
 
 static f32 smoothstep(f32 e0, f32 e1, f32 x) {
   f32 t = pc_clampf((x - e0) / (e1 - e0), 0.0f, 1.0f);
   return t * t * (3.0f - 2.0f * t);
+}
+
+/*
+ * Pigment fringe:
+ * bristles push the densest pigment particles to the stroke margin.
+ * Just inside the AA rim the paint runs darker and slightly more saturated -
+ * the organic dark halo that defines every overlapping stroke.
+ */
+static void apply_fringe(f32 *c, f32 vn, f32 fringe) {
+  f32 fr = fringe * smoothstep(0.72f, 0.90f, vn) *
+           (1.0f - smoothstep(0.93f, 1.0f, vn));
+  if (fr <= 0.0f)
+    return;
+  f32 l = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
+  for (i32 k = 0; k < 3; k++)
+    c[k] =
+        pc_clampf((l + (c[k] - l) * (1.0f + 0.35f * fr)) * (1.0f - 0.28f * fr),
+                  0.0f, 255.0f);
 }
 
 /*
@@ -188,6 +207,9 @@ static void stamp_segment(Sbr *s, f32 ax, f32 ay, f32 bx, f32 by, f32 rad,
         pc_mix_paint(c, upf, m, s->vib, c);
       }
 
+      /* dark pigment halo just inside the stroke rim */
+      apply_fringe(c, d * inv_rad, s->fringe);
+
       usize o = i * 4;
       u8 *im = s->img;
       f32 cur[3] = {(f32)im[o], (f32)im[o + 1], (f32)im[o + 2]};
@@ -264,6 +286,9 @@ static void stamp_slab(Sbr *s, f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
         f32 m = s->drag * 0.45f * (0.25f + 0.75f * u);
         pc_mix_paint(c, upf, m, s->vib, c);
       }
+
+      /* dark pigment halo along the slab's long edges */
+      apply_fringe(c, vn, s->fringe);
 
       usize o = i * 4;
       u8 *im = s->img;
@@ -387,7 +412,7 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
  */
 void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
             f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim, f32 dry,
-            f32 drag, f32 vib) {
+            f32 drag, f32 vib, f32 fringe) {
   if (size < 8)
     size = 8;
   alignment = pc_clampf(alignment, 0.0f, 1.0f);
@@ -420,7 +445,8 @@ void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
            pc_clampf(bristle, 0.0f, 1.0f),
            pc_clampf(dry, 0.0f, 1.0f),
            pc_clampf(drag, 0.0f, 1.0f),
-           pc_clampf(vib, 0.0f, 1.0f)};
+           pc_clampf(vib, 0.0f, 1.0f),
+           pc_clampf(fringe, 0.0f, 1.0f)};
 
   /* flat-region strokes follow the light,
    * like painter working the sky in one consistent sweep */

@@ -55,7 +55,6 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
   /* Quantize before any stroke pass:
    * all renderers then work with limited physical palette */
   pc_quantize(dst, w, h, pigments);
-  (void)fringe; /* consumed by the stroke renderers below */
 
   if (render_mode == 2) {
     /* Multi-scale SBR:
@@ -68,7 +67,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     if (!height)
       return;
     pc_sbr(dst, height, w, h, knife_size, sbr_undercoat, sbr_form, sbr_detail,
-           sbr_alignment, bristle, light_azim, knife_dry, knife_drag, vibrancy);
+           sbr_alignment, bristle, light_azim, knife_dry, knife_drag, vibrancy,
+           fringe);
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
@@ -89,7 +89,7 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     if (!height)
       return;
     pc_knife(dst, height, w, h, knife_size, 3, knife_detail, light_azim, 0.10f,
-             knife_ridge, knife_dry, knife_drag, vibrancy);
+             knife_ridge, knife_dry, knife_drag, vibrancy, fringe);
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);

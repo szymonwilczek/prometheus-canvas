@@ -102,12 +102,12 @@ void pc_sbr_field(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy, f32 *aniso,
 /* sbr.c */
 void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
             f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim,
-            f32 dry, f32 drag, f32 vib);
+            f32 dry, f32 drag, f32 vib, f32 fringe);
 
 /* knife.c */
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
               f32 detail, f32 azim, f32 tint, f32 ridge, f32 dry, f32 drag,
-              f32 vib);
+              f32 vib, f32 fringe);
 void pc_lanczos3(const u8 *src, i32 sw, i32 sh, u8 *dst, i32 dw, i32 dh);
 void pc_unsharp(u8 *img, i32 w, i32 h, f32 amount, f32 sigma);
 
