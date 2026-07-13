@@ -32,6 +32,9 @@ interface EngineExports {
     cavity: number,
     pigmentNoise: number,
     noiseScale: number,
+    knifeMode: number,
+    knifeSize: number,
+    knifeDetail: number,
   ): void;
   pc_upscale(
     src: number,
@@ -102,6 +105,9 @@ function handle(req: WorkerRequest): void {
     p.cavity,
     p.pigmentNoise,
     p.noiseScale,
+    p.mode === "knife" ? 1 : 0,
+    p.knifeSize,
+    p.knifeDetail,
   );
 
   if (out) {

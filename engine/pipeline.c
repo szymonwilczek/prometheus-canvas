@@ -23,18 +23,31 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 edge_q, i32 stroke_length, i32 pigments, f32 saturation,
                 f32 contrast, f32 impasto_depth, f32 light_elev, f32 light_azim,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,
-                f32 weave_scale, f32 cavity, f32 pigment_noise,
-                f32 noise_scale) {
+                f32 weave_scale, f32 cavity, f32 pigment_noise, f32 noise_scale,
+                i32 knife_mode, i32 knife_size, f32 knife_detail) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
-  /* Quantize before the stroke pass:
-   * Flow advection then smears the hard pigment boundaries directionally,
-   * turning posterization bands into brushy directional transitions */
+  /* Quantize before any stroke pass:
+   * both renderers then work with limited physical palette */
   pc_quantize(dst, w, h, pigments);
 
-  /* Flow field for the stroke pass, from the pre-stroke image
-   * (the strokes must follow the geometry that exists before smearing).
-   * Bristle layer inside pc_impasto computes its own tensor from
-   * the post-stroke image, where anisotropy is meaningful. */
+  if (knife_mode) {
+    /* Palette knife:
+     * the image is rebuilt from discrete smears that carry their own relief;
+     * the per-pixel texture stages (flow LIC, Sobel ridges, bristles) do not
+     * apply */
+    usize n = (usize)w * (usize)h;
+    f32 *height = (f32 *)pc_alloc(n * 4);
+    if (!height)
+      return;
+    pc_knife(dst, height, w, h, knife_size, 3, knife_detail, light_azim, 0.10f);
+    pc_color_adjust(dst, w, h, saturation, contrast);
+    pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
+    pc_add_weave(height, w, h, weave, weave_scale);
+    pc_shade_height(dst, w, h, height, impasto_depth, light_elev, light_azim,
+                    specular, shininess, cavity);
+    return;
+  }
+
   if (stroke_length > 0) {
     usize n = (usize)w * (usize)h;
     f32 *fx = (f32 *)pc_alloc(n * 4);

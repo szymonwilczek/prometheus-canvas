@@ -102,6 +102,7 @@ function App() {
         strokeLength: Math.round(params.strokeLength * ratio),
         weaveScale: Math.max(2, Math.round(params.weaveScale * ratio)),
         noiseScale: Math.max(2, Math.round(params.noiseScale * ratio)),
+        knifeSize: Math.max(4, Math.round(params.knifeSize * ratio)),
       };
       const longest = Math.max(fullImage.width, fullImage.height);
       const factor = Math.min(output.upscaleFactor, EXPORT_MAX / longest);

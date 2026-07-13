@@ -111,35 +111,59 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
     }
   }
 
-  /* layer 3: plain-weave canvas, revealed where paint is thin */
-  if (weave > 0.0f && weave_scale >= 1.0f) {
-    f32 inv_s = 1.0f / weave_scale;
-    for (i32 y = 0; y < h; y++) {
-      for (i32 x = 0; x < w; x++) {
-        usize i = (usize)y * (usize)w + (usize)x;
-        f32 u = (f32)x * inv_s, v = (f32)y * inv_s;
-        i32 cu = (i32)pc_floorf(u), cv = (i32)pc_floorf(v);
-        f32 warp = pc_fabsf(pc_sinf(PC_PI * u));
-        f32 weft = pc_fabsf(pc_sinf(PC_PI * v));
-        /* over/under alternation of threads on checkerboard,
-         * thread crown thickness jittered per cell */
-        f32 thread = ((cu + cv) & 1) ? warp : weft;
-        f32 jitter = 0.85f + 0.3f * pc_hash2(cu, cv);
-        f32 cover = 1.0f - pc_minf(1.0f, height[i] * 3.0f);
-        height[i] += weave * 0.02f * thread * jitter * cover;
-      }
+  /* layer 3: canvas weave, then light the combined field */
+  pc_add_weave(height, w, h, weave, weave_scale);
+  pc_shade_height(img, w, h, height,
+                  depth > 0.0f ? depth : 20.0f, /* weave-only mode
+                  still needs normals to have something to bite on */
+                  elev, azim, specular, shininess, cavity);
+}
+
+/*
+ * Plain-weave canvas added to an existing height field:
+ * warp/weft threads alternate over/under on checkerboard, each thread crowned
+ * by |sin|, thickness jittered per cell - attenuated where the paint is already
+ * thick, exactly like real primed canvas
+ */
+void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 weave_scale) {
+  if (weave <= 0.0f || weave_scale < 1.0f)
+    return;
+
+  f32 inv_s = 1.0f / weave_scale;
+  for (i32 y = 0; y < h; y++) {
+    for (i32 x = 0; x < w; x++) {
+      usize i = (usize)y * (usize)w + (usize)x;
+      f32 u = (f32)x * inv_s, v = (f32)y * inv_s;
+      i32 cu = (i32)pc_floorf(u), cv = (i32)pc_floorf(v);
+      f32 warp = pc_fabsf(pc_sinf(PC_PI * u));
+      f32 weft = pc_fabsf(pc_sinf(PC_PI * v));
+      f32 thread = ((cu + cv) & 1) ? warp : weft;
+      f32 jitter = 0.85f + 0.3f * pc_hash2(cu, cv);
+      f32 cover = 1.0f - pc_minf(1.0f, height[i] * 3.0f);
+      height[i] += weave * 0.02f * thread * jitter * cover;
     }
   }
+}
 
-  /* cavity map: ambient occlusion in the paint valleys
-   * pixel below its blurred neighborhood sits in crevice between strokes;
-   * ambient light reaches it last.
-   * tmp holds the blurred height from here on.
-   */
-  if (cavity > 0.0f)
-    pc_box_blur(height, tmp, w, h, 3);
+/*
+ * Blinn-Phong relief shading of an RGBA image against an arbitrary height
+ * field.
+ * Diffuse is normalized against a flat surface and the specular term is offset
+ * by the flat-surface glint, so zero-relief pixel keeps its exact original
+ * color at any light angle.
+ * Cavity darkening: pixel below its blurred neighborhood sits in a crevice
+ * between strokes and receives ambient light last.
+ */
+void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
+                     f32 elev, f32 azim, f32 specular, i32 shininess,
+                     f32 cavity) {
+  f32 *blur = 0;
+  if (cavity > 0.0f) {
+    blur = (f32 *)pc_alloc((usize)w * (usize)h * 4);
+    if (blur)
+      pc_box_blur(height, blur, w, h, 3);
+  }
 
-  /* Blinn-Phong over the combined field */
   f32 ce = pc_sinf(elev + PC_HALFPI);      /* cos(elev) */
   f32 lx = ce * pc_sinf(azim + PC_HALFPI); /* cos(azim) * cos(elev) */
   f32 ly = -ce * pc_sinf(azim);
@@ -155,8 +179,6 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
   f32 flat = AMBIENT + DIFFUSE * pc_maxf(lz, 0.0f);
   f32 inv_flat = flat > 1e-6f ? 1.0f / flat : 1.0f;
   f32 flat_spec = specular * pow_int(pc_maxf(hz, 0.0f), shininess);
-  /* weave-only mode still needs normals to have something to bite on */
-  f32 slope = depth > 0.0f ? depth : 20.0f;
 
   for (i32 y = 0; y < h; y++) {
     i32 ym = pc_maxi(y - 1, 0), yp = pc_mini(y + 1, h - 1);
@@ -169,7 +191,7 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
                  height[(usize)ym * (usize)w + (usize)x]) *
                 0.5f;
 
-      f32 nx = -dhx * slope, ny = -dhy * slope, nz = 1.0f;
+      f32 nx = -dhx * depth, ny = -dhy * depth, nz = 1.0f;
       f32 inv_len = 1.0f / pc_sqrtf(nx * nx + ny * ny + 1.0f);
       nx *= inv_len;
       ny *= inv_len;
@@ -181,9 +203,8 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
       f32 mult = (AMBIENT + DIFFUSE * ndl) * inv_flat;
 
       usize i = row + (usize)x;
-      if (cavity > 0.0f) {
-        /* deeper below the local surface = darker crevice */
-        f32 cav = pc_maxf(0.0f, tmp[i] - height[i]);
+      if (blur) {
+        f32 cav = pc_maxf(0.0f, blur[i] - height[i]);
         mult *= 1.0f - pc_minf(0.6f, cavity * cav * 8.0f);
       }
 
