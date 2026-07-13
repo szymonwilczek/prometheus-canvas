@@ -1,9 +1,15 @@
-/** Rendering mode: per-pixel brush filtering or discrete knife smears. */
-export type PaintMode = "brush" | "knife";
+/**
+ * Rendering mode: per-pixel brush filtering, discrete knife smears,
+ * or multi-scale traced impasto strokes.
+ */
+export type PaintMode = "brush" | "knife" | "sbr";
 
 /** Parameters for the constant-resolution paint pipeline (stages 1-5). */
 export interface PaintParams {
-  /** Renderer: 'brush' (Kuwahara + flow LIC) or 'knife' (stroke-based smears). */
+  /**
+   * Renderer: 'brush' (Kuwahara + flow LIC), 'knife' (stroke-based smears),
+   * or 'sbr' (layered flow-traced strokes with a physical heightmap).
+   */
   mode: PaintMode;
   /** Kuwahara brush radius in px, 0 disables. Range 0-30. */
   kuwaharaRadius: number;
@@ -39,10 +45,24 @@ export interface PaintParams {
   pigmentNoise: number;
   /** Pigment noise patch size in px. */
   noiseScale: number;
-  /** Knife mode: largest smear size in px (coarsest layer). */
+  /** Knife/SBR modes: largest smear/slab size in px (coarsest layer). */
   knifeSize: number;
   /** Knife mode: 0 = broad slabs only, 1 = dense fine detail. */
   knifeDetail: number;
+  /** SBR: paint the undercoat layer (broad flat slabs). */
+  sbrUndercoat: boolean;
+  /** SBR: undercoat stroke density multiplier (0.25-2). */
+  sbrUndercoatDensity: number;
+  /** SBR: paint the form layer (medium flow-traced strokes). */
+  sbrForm: boolean;
+  /** SBR: form stroke density multiplier (0.25-2). */
+  sbrFormDensity: number;
+  /** SBR: paint the detail layer (importance-gated micro-strokes). */
+  sbrDetail: boolean;
+  /** SBR: detail stroke density multiplier (0.25-2). */
+  sbrDetailDensity: number;
+  /** SBR: 1 = strokes bend fully with the flow field, 0 = straight flicks. */
+  sbrAlignment: number;
 }
 
 /** Parameters for the output stage (stages 6-7). */
@@ -76,6 +96,13 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   noiseScale: 9,
   knifeSize: 40,
   knifeDetail: 0.65,
+  sbrUndercoat: true,
+  sbrUndercoatDensity: 1,
+  sbrForm: true,
+  sbrFormDensity: 1,
+  sbrDetail: true,
+  sbrDetailDensity: 1,
+  sbrAlignment: 0.85,
 };
 
 export const DEFAULT_OUTPUT_PARAMS: OutputParams = {

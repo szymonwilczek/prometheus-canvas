@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { ParamSlider } from "@/components/param-slider";
 import { PRESETS } from "@/engine/presets";
 import {
@@ -91,6 +92,7 @@ export function ControlsPanel({
               <SelectContent>
                 <SelectItem value="brush">Brush strokes</SelectItem>
                 <SelectItem value="knife">Palette knife</SelectItem>
+                <SelectItem value="sbr">Impasto oil (SBR)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -110,7 +112,7 @@ export function ControlsPanel({
             step={0.5}
             onChange={(v) => set("edgeQ", v)}
           />
-          {params.mode === "brush" ? (
+          {params.mode === "brush" && (
             <ParamSlider
               label="Stroke length (flow)"
               value={params.strokeLength}
@@ -119,7 +121,8 @@ export function ControlsPanel({
               unit="px"
               onChange={(v) => set("strokeLength", v)}
             />
-          ) : (
+          )}
+          {params.mode === "knife" && (
             <>
               <ParamSlider
                 label="Knife size"
@@ -139,8 +142,92 @@ export function ControlsPanel({
               />
             </>
           )}
+          {params.mode === "sbr" && (
+            <>
+              <ParamSlider
+                label="Base stroke size"
+                value={params.knifeSize}
+                min={12}
+                max={72}
+                unit="px"
+                onChange={(v) => set("knifeSize", v)}
+              />
+              <ParamSlider
+                label="Vector alignment"
+                value={params.sbrAlignment}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("sbrAlignment", v)}
+              />
+            </>
+          )}
         </CardContent>
       </Card>
+
+      {params.mode === "sbr" && (
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="text-sm">Paint layers — SBR</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Undercoat layer</Label>
+              <Switch
+                checked={params.sbrUndercoat}
+                onCheckedChange={(v) => set("sbrUndercoat", v)}
+              />
+            </div>
+            {params.sbrUndercoat && (
+              <ParamSlider
+                label="Undercoat strokes"
+                value={params.sbrUndercoatDensity}
+                min={0.25}
+                max={2}
+                step={0.05}
+                unit="×"
+                onChange={(v) => set("sbrUndercoatDensity", v)}
+              />
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Form layer</Label>
+              <Switch
+                checked={params.sbrForm}
+                onCheckedChange={(v) => set("sbrForm", v)}
+              />
+            </div>
+            {params.sbrForm && (
+              <ParamSlider
+                label="Form strokes"
+                value={params.sbrFormDensity}
+                min={0.25}
+                max={2}
+                step={0.05}
+                unit="×"
+                onChange={(v) => set("sbrFormDensity", v)}
+              />
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <Label className="text-xs">Detail layer</Label>
+              <Switch
+                checked={params.sbrDetail}
+                onCheckedChange={(v) => set("sbrDetail", v)}
+              />
+            </div>
+            {params.sbrDetail && (
+              <ParamSlider
+                label="Detail strokes"
+                value={params.sbrDetailDensity}
+                min={0.25}
+                max={2}
+                step={0.05}
+                unit="×"
+                onChange={(v) => set("sbrDetailDensity", v)}
+              />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card size="sm">
         <CardHeader>
@@ -241,9 +328,11 @@ export function ControlsPanel({
             step={0.05}
             onChange={(v) => set("cavity", v)}
           />
-          {params.mode === "brush" && (
+          {params.mode !== "knife" && (
             <ParamSlider
-              label="Bristle grooves"
+              label={
+                params.mode === "sbr" ? "Bristle intensity" : "Bristle grooves"
+              }
               value={params.bristle}
               min={0}
               max={1}

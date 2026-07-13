@@ -32,9 +32,13 @@ interface EngineExports {
     cavity: number,
     pigmentNoise: number,
     noiseScale: number,
-    knifeMode: number,
+    renderMode: number,
     knifeSize: number,
     knifeDetail: number,
+    sbrUndercoat: number,
+    sbrForm: number,
+    sbrDetail: number,
+    sbrAlignment: number,
   ): void;
   pc_upscale(
     src: number,
@@ -105,9 +109,13 @@ function handle(req: WorkerRequest): void {
     p.cavity,
     p.pigmentNoise,
     p.noiseScale,
-    p.mode === "knife" ? 1 : 0,
+    p.mode === "knife" ? 1 : p.mode === "sbr" ? 2 : 0,
     p.knifeSize,
     p.knifeDetail,
+    p.sbrUndercoat ? p.sbrUndercoatDensity : 0,
+    p.sbrForm ? p.sbrFormDensity : 0,
+    p.sbrDetail ? p.sbrDetailDensity : 0,
+    p.sbrAlignment,
   );
 
   if (out) {

@@ -46,6 +46,9 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
            sbr_alignment, bristle, light_azim);
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
+    pc_add_weave(height, w, h, weave, weave_scale);
+    pc_shade_height(dst, w, h, height, impasto_depth, light_elev, light_azim,
+                    specular, shininess, cavity);
     return;
   }
 
