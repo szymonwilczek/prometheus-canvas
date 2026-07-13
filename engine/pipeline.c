@@ -13,6 +13,29 @@
 #include "pc.h"
 
 /*
+ * Stroke tangents for the anisotropic varnish glint:
+ * structure tensor of the *painted* canvas runs along the streaks and grooves
+ * the strokes actually left.
+ * Returns tfx (and tfy via out param), or 0 when anisotropy is off
+ * or the heap is exhausted.
+ */
+static const f32 *paint_tangents(const u8 *img, i32 w, i32 h, f32 anisotropy,
+                                 f32 **out_ty) {
+  *out_ty = 0;
+  if (anisotropy <= 0.0f)
+    return 0;
+  usize n = (usize)w * (usize)h;
+  f32 *tx = (f32 *)pc_alloc(n * 4);
+  f32 *ty = (f32 *)pc_alloc(n * 4);
+  f32 *ta = (f32 *)pc_alloc(n * 4);
+  if (!tx || !ty || !ta)
+    return 0;
+  pc_structure_tensor(img, w, h, tx, ty, ta);
+  *out_ty = ty;
+  return tx;
+}
+
+/*
  * Stages 1-5 at constant resolution:
  * Kuwahara -> flow strokes -> pigment quantization -> saturation/
  * contrast -> impasto (ridges + bristles + canvas weave, Blinn-Phong).
@@ -27,11 +50,12 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 i32 render_mode, i32 knife_size, f32 knife_detail,
                 f32 sbr_undercoat, f32 sbr_form, f32 sbr_detail,
                 f32 sbr_alignment, f32 knife_ridge, f32 knife_dry,
-                f32 knife_drag, f32 vibrancy) {
+                f32 knife_drag, f32 vibrancy, f32 anisotropy, f32 fringe) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
   /* Quantize before any stroke pass:
    * all renderers then work with limited physical palette */
   pc_quantize(dst, w, h, pigments);
+  (void)fringe; /* consumed by the stroke renderers below */
 
   if (render_mode == 2) {
     /* Multi-scale SBR:
@@ -44,13 +68,14 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     if (!height)
       return;
     pc_sbr(dst, height, w, h, knife_size, sbr_undercoat, sbr_form, sbr_detail,
-           sbr_alignment, bristle, light_azim, knife_dry, knife_drag,
-           vibrancy);
+           sbr_alignment, bristle, light_azim, knife_dry, knife_drag, vibrancy);
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
+    f32 *tfy;
+    const f32 *tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
     pc_shade_height(dst, w, h, height, impasto_depth, light_elev, light_azim,
-                    specular, shininess, cavity);
+                    specular, shininess, cavity, tfx, tfy, anisotropy);
     return;
   }
 
@@ -68,8 +93,10 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
+    f32 *tfy;
+    const f32 *tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
     pc_shade_height(dst, w, h, height, impasto_depth, light_elev, light_azim,
-                    specular, shininess, cavity);
+                    specular, shininess, cavity, tfx, tfy, anisotropy);
     return;
   }
 

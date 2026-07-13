@@ -92,7 +92,7 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
 void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 scale);
 void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
                      f32 elev, f32 azim, f32 specular, i32 shininess,
-                     f32 cavity);
+                     f32 cavity, const f32 *tfx, const f32 *tfy, f32 aniso);
 
 /* field.c */
 void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);

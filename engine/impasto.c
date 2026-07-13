@@ -116,7 +116,7 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
   pc_shade_height(img, w, h, height,
                   depth > 0.0f ? depth : 20.0f, /* weave-only mode
                   still needs normals to have something to bite on */
-                  elev, azim, specular, shininess, cavity);
+                  elev, azim, specular, shininess, cavity, 0, 0, 0.0f);
 }
 
 /*
@@ -153,10 +153,20 @@ void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 weave_scale) {
  * color at any light angle.
  * Cavity darkening: pixel below its blurred neighborhood sits in a crevice
  * between strokes and receives ambient light last.
+ *
+ * ANISOTROPIC GLINT:
+ * `tfx`/`tfy` (optional, may be NULL) is the local stroke tangent field.
+ * Varnished brush grooves do not reflect like plastic:
+ * light stretches into streak *across* the hairs.
+ * Where the tangent is supplied, the isotropic Blinn-Phong lobe is blended
+ * toward a Kajiya-Kay hair-strand term, sin(T,H)^n maximal when the half vector
+ * is perpendicular to the groove direction - gated by the local slope so flat
+ * varnish keeps no phantom sheen.
+ * `aniso` sets the blend.
  */
 void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
                      f32 elev, f32 azim, f32 specular, i32 shininess,
-                     f32 cavity) {
+                     f32 cavity, const f32 *tfx, const f32 *tfy, f32 aniso) {
   f32 *blur = 0;
   if (cavity > 0.0f) {
     blur = (f32 *)pc_alloc((usize)w * (usize)h * 4);
@@ -178,7 +188,9 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
   const f32 AMBIENT = 0.30f, DIFFUSE = 0.70f;
   f32 flat = AMBIENT + DIFFUSE * pc_maxf(lz, 0.0f);
   f32 inv_flat = flat > 1e-6f ? 1.0f / flat : 1.0f;
-  f32 flat_spec = specular * pow_int(pc_maxf(hz, 0.0f), shininess);
+  f32 flat_pow = pow_int(pc_maxf(hz, 0.0f), shininess);
+  aniso = pc_clampf(aniso, 0.0f, 1.0f);
+  i32 kk_exp = pc_maxi(1, shininess >> 1); /* sin^n via (sin^2)^(n/2) */
 
   for (i32 y = 0; y < h; y++) {
     i32 ym = pc_maxi(y - 1, 0), yp = pc_mini(y + 1, h - 1);
@@ -227,7 +239,19 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
       /* specular relative to flat:
        * ridges glint, flats stay unchanged.
        * Slightly warm tint - linseed varnish is not neutral mirror */
-      f32 spec = 255.0f * (specular * pow_int(ndh, shininess) - flat_spec);
+      f32 s_spec = pow_int(ndh, shininess) - flat_pow;
+      if (tfx && aniso > 0.0f) {
+        /* Kajiya-Kay strand glint stretched across the groove:
+         * T lies in the canvas plane along the stroke;
+         * streak peaks where H is perpendicular to it.
+         * slope-gated so only actual paint relief carries anisotropic sheen */
+        f32 th = tfx[i] * hx + tfy[i] * hy;
+        f32 sina2 = pc_maxf(0.0f, 1.0f - th * th);
+        f32 kk = pow_int(sina2, kk_exp);
+        f32 gate = pc_minf(1.0f, gm * 20.0f);
+        s_spec += aniso * (gate * kk - s_spec);
+      }
+      f32 spec = 255.0f * specular * s_spec;
 
       usize o = i * 4;
       img[o] = pc_clamp255((f32)img[o] * mult + spec);
