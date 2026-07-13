@@ -71,7 +71,7 @@ function App() {
     bmp.close();
   }, []);
 
-  /* Debounced preview: stages 1-5 at proxy resolution, no upscale. */
+  /* debounced preview: stages 1-5 at proxy resolution, no upscale */
   useEffect(() => {
     if (!ready || !proxy) return;
     const job = ++jobRef.current;
@@ -92,12 +92,19 @@ function App() {
   }, [ready, proxy, params, process]);
 
   const onExport = async () => {
-    if (!ready || !fullImage) return;
+    if (!ready || !fullImage || !proxy) return;
     setExporting(true);
     try {
+      const ratio = fullImage.width / proxy.width;
+      const scaled: PaintParams = {
+        ...params,
+        kuwaharaRadius: Math.round(params.kuwaharaRadius * ratio),
+        strokeLength: Math.round(params.strokeLength * ratio),
+        weaveScale: Math.max(2, Math.round(params.weaveScale * ratio)),
+      };
       const longest = Math.max(fullImage.width, fullImage.height);
       const factor = Math.min(output.upscaleFactor, EXPORT_MAX / longest);
-      const r = await process(fullImage, params, {
+      const r = await process(fullImage, scaled, {
         ...output,
         upscaleFactor: Math.max(1, factor),
       });
@@ -109,9 +116,12 @@ function App() {
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <header className="flex items-center gap-3 border-b px-4 py-2">
-        <h1 className="font-mono text-sm font-semibold">Prometheus</h1>
-        <Badge variant="outline" className="font-mono text-[10px]">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2">
+        <h1 className="font-mono text-sm font-semibold">prometheus-canvas</h1>
+        <Badge
+          variant="outline"
+          className="hidden font-mono text-[10px] sm:inline-flex"
+        >
           pure math · zero AI · zero servers
         </Badge>
         <div className="ml-auto flex items-center gap-2">
@@ -148,9 +158,9 @@ function App() {
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <main
-          className="min-w-0 flex-1 p-3"
+          className="h-[52vh] shrink-0 p-3 lg:h-auto lg:min-w-0 lg:flex-1"
           onDragOver={(e) => e.preventDefault()}
           onDrop={(e) => {
             e.preventDefault();
@@ -166,7 +176,7 @@ function App() {
           />
         </main>
 
-        <aside className="w-72 shrink-0 overflow-y-auto border-l p-3">
+        <aside className="min-h-0 flex-1 overflow-y-auto border-t p-3 lg:w-72 lg:flex-none lg:border-t-0 lg:border-l">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">
               PIPELINE PARAMETERS
