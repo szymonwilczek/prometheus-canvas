@@ -191,6 +191,22 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
                  height[(usize)ym * (usize)w + (usize)x]) *
                 0.5f;
 
+      /* Normal sharpening:
+       * central differences over the blurred height field make every transition
+       * soft mound.
+       * Remap the slope magnitude through a smoothstep sigmoid - gentle slopes
+       * relax, steep stroke fractures keep (and slightly gain) their gradient -
+       * so paint edges shade as crisp breaks instead of soap.
+       * 0.35 floor keeps faint weave and grain texture alive */
+      f32 gm = pc_sqrtf(dhx * dhx + dhy * dhy);
+      if (gm > 1e-6f) {
+        f32 gn = pc_minf(gm * 16.0f, 1.0f);
+        f32 shaped = gn * gn * (3.0f - 2.0f * gn);
+        f32 crisp = 0.35f + 0.65f * (shaped / gn);
+        dhx *= crisp;
+        dhy *= crisp;
+      }
+
       f32 nx = -dhx * depth, ny = -dhy * depth, nz = 1.0f;
       f32 inv_len = 1.0f / pc_sqrtf(nx * nx + ny * ny + 1.0f);
       nx *= inv_len;
