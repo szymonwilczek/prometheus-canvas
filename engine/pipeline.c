@@ -23,7 +23,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 edge_q, i32 stroke_length, i32 pigments, f32 saturation,
                 f32 contrast, f32 impasto_depth, f32 light_elev, f32 light_azim,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,
-                f32 weave_scale) {
+                f32 weave_scale, f32 cavity, f32 pigment_noise,
+                f32 noise_scale) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
   /* Quantize before the stroke pass:
    * Flow advection then smears the hard pigment boundaries directionally,
@@ -46,8 +47,9 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
   }
 
   pc_color_adjust(dst, w, h, saturation, contrast);
+  pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
   pc_impasto(dst, w, h, impasto_depth, light_elev, light_azim, specular,
-             shininess, bristle, weave, weave_scale);
+             shininess, bristle, weave, weave_scale, cavity);
 }
 
 /*

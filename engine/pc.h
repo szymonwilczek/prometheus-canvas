@@ -82,9 +82,10 @@ void pc_flow_strokes(u8 *img, i32 w, i32 h, i32 length, const f32 *fx,
                      const f32 *fy);
 void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
+void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
 void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,
-                f32 weave_scale);
+                f32 weave_scale, f32 cavity);
 void pc_lanczos3(const u8 *src, i32 sw, i32 sh, u8 *dst, i32 dw, i32 dh);
 void pc_unsharp(u8 *img, i32 w, i32 h, f32 amount, f32 sigma);
 

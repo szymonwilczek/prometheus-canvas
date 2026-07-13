@@ -6,19 +6,18 @@
  *
  * 1. RIDGES - Sobel gradient magnitude of the painted image.
  *    After Kuwahara + flow strokes the image is piecewise-flat, so gradient
- *    energy sits exactly on stroke boundaries, where a loaded brush deposits
- *    its thickest bead of paint.
- *    Two box blurs give the ridges soft flanks.
+ *    energy sits exactly on stroke boundaries, where loaded brush deposits
+ *    its thickest bead of paint. Two box blurs give the ridges soft flanks.
  * 2. BRISTLES - grooves scratched by individual brush hairs.
  *    Phase runs across the local stroke direction (perpendicular coordinate
  *    against the structure-tensor flow field), jittered by hash noise
  *    so hairs are irregular, amplitude gated by anisotropy so grooves
  *    exist only where there is actual directional structure.
  * 3. CANVAS WEAVE - procedural plain-weave fabric:
- *    warp/weft threads alternate over/under on a checkerboard, each thread's
+ *    warp/weft threads alternate over/under on checkerboard, each thread's
  *    crown is |sin| shaped, thread thickness jittered per-cell.
  *    Weave is attenuated where the paint ridge is thick - heavy impasto hides
- *    the canvas, thin washes reveal it, exactly like real painting.
+ *    the canvas, thin washes reveal it, exactly like a real painting.
  *
  * Combined field is lit per pixel by Blinn-Phong with the light direction from
  * the elevation/azimuth sliders.
@@ -41,7 +40,7 @@ static f32 pow_int(f32 x, i32 e) {
 
 void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
                 f32 specular, i32 shininess, f32 bristle, f32 weave,
-                f32 weave_scale) {
+                f32 weave_scale, f32 cavity) {
   if (depth <= 0.0f && weave <= 0.0f)
     return;
 
@@ -132,6 +131,14 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
     }
   }
 
+  /* cavity map: ambient occlusion in the paint valleys
+   * pixel below its blurred neighborhood sits in crevice between strokes;
+   * ambient light reaches it last.
+   * tmp holds the blurred height from here on.
+   */
+  if (cavity > 0.0f)
+    pc_box_blur(height, tmp, w, h, 3);
+
   /* Blinn-Phong over the combined field */
   f32 ce = pc_sinf(elev + PC_HALFPI);      /* cos(elev) */
   f32 lx = ce * pc_sinf(azim + PC_HALFPI); /* cos(azim) * cos(elev) */
@@ -172,12 +179,23 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
       f32 ndh = pc_maxf(nx * hx + ny * hy + nz * hz, 0.0f);
 
       f32 mult = (AMBIENT + DIFFUSE * ndl) * inv_flat;
+
+      usize i = row + (usize)x;
+      if (cavity > 0.0f) {
+        /* deeper below the local surface = darker crevice */
+        f32 cav = pc_maxf(0.0f, tmp[i] - height[i]);
+        mult *= 1.0f - pc_minf(0.6f, cavity * cav * 8.0f);
+      }
+
+      /* specular relative to flat:
+       * ridges glint, flats stay unchanged.
+       * Slightly warm tint - linseed varnish is not neutral mirror */
       f32 spec = 255.0f * (specular * pow_int(ndh, shininess) - flat_spec);
 
-      usize o = (row + (usize)x) * 4;
+      usize o = i * 4;
       img[o] = pc_clamp255((f32)img[o] * mult + spec);
-      img[o + 1] = pc_clamp255((f32)img[o + 1] * mult + spec);
-      img[o + 2] = pc_clamp255((f32)img[o + 2] * mult + spec);
+      img[o + 1] = pc_clamp255((f32)img[o + 1] * mult + spec * 0.97f);
+      img[o + 2] = pc_clamp255((f32)img[o + 2] * mult + spec * 0.90f);
     }
   }
 }

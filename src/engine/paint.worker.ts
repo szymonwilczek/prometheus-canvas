@@ -29,6 +29,9 @@ interface EngineExports {
     bristle: number,
     weave: number,
     weaveScale: number,
+    cavity: number,
+    pigmentNoise: number,
+    noiseScale: number,
   ): void;
   pc_upscale(
     src: number,
@@ -96,6 +99,9 @@ function handle(req: WorkerRequest): void {
     p.bristle,
     p.canvasWeave,
     p.weaveScale,
+    p.cavity,
+    p.pigmentNoise,
+    p.noiseScale,
   );
 
   if (out) {

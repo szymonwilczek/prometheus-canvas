@@ -28,6 +28,12 @@ export interface PaintParams {
   canvasWeave: number;
   /** Weave thread pitch in px. */
   weaveScale: number;
+  /** Cavity shading strength (0-1): ambient occlusion in paint valleys. */
+  cavity: number;
+  /** Pigment mixing imperfection (0-1): value-noise luminance modulation. */
+  pigmentNoise: number;
+  /** Pigment noise patch size in px. */
+  noiseScale: number;
 }
 
 /** Parameters for the output stage (stages 6-7). */
@@ -55,6 +61,9 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   bristle: 0.6,
   canvasWeave: 0.3,
   weaveScale: 4,
+  cavity: 0.5,
+  pigmentNoise: 0.5,
+  noiseScale: 9,
 };
 
 export const DEFAULT_OUTPUT_PARAMS: OutputParams = {
