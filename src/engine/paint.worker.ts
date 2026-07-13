@@ -17,6 +17,7 @@ interface EngineExports {
     dst: number,
     kuwaharaRadius: number,
     edgeQ: number,
+    strokeLength: number,
     pigments: number,
     saturation: number,
     contrast: number,
@@ -25,6 +26,9 @@ interface EngineExports {
     lightAzim: number,
     specular: number,
     shininess: number,
+    bristle: number,
+    weave: number,
+    weaveScale: number,
   ): void;
   pc_upscale(
     src: number,
@@ -80,6 +84,7 @@ function handle(req: WorkerRequest): void {
     dstPtr,
     p.kuwaharaRadius,
     p.edgeQ,
+    p.strokeLength,
     p.pigments,
     p.saturation,
     p.contrast,
@@ -88,6 +93,9 @@ function handle(req: WorkerRequest): void {
     p.lightAzimuth * DEG,
     p.specular,
     p.shininess,
+    p.bristle,
+    p.canvasWeave,
+    p.weaveScale,
   );
 
   if (out) {

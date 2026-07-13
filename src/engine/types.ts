@@ -4,6 +4,8 @@ export interface PaintParams {
   kuwaharaRadius: number;
   /** Edge preservation exponent q. Low = soft strokes, high = hard. */
   edgeQ: number;
+  /** Flow-guided stroke length in px (LIC along the structure tensor), 0 disables. */
+  strokeLength: number;
   /** Number of pigment clusters, 0 disables quantization. Range 0-64. */
   pigments: number;
   /** Chroma multiplier around the luma axis. 1 = neutral. */
@@ -20,6 +22,12 @@ export interface PaintParams {
   specular: number;
   /** Blinn-Phong shininess exponent (integer). */
   shininess: number;
+  /** Bristle groove strength (0-1), gated by local anisotropy. */
+  bristle: number;
+  /** Canvas weave strength (0-1), revealed where paint is thin. */
+  canvasWeave: number;
+  /** Weave thread pitch in px. */
+  weaveScale: number;
 }
 
 /** Parameters for the output stage (stages 6-7). */
@@ -33,16 +41,20 @@ export interface OutputParams {
 }
 
 export const DEFAULT_PAINT_PARAMS: PaintParams = {
-  kuwaharaRadius: 6,
+  kuwaharaRadius: 7,
   edgeQ: 8,
-  pigments: 24,
-  saturation: 1.15,
-  contrast: 1.05,
-  impastoDepth: 30,
-  lightElevation: 40,
-  lightAzimuth: 120,
-  specular: 0.25,
-  shininess: 32,
+  strokeLength: 10,
+  pigments: 20,
+  saturation: 1.2,
+  contrast: 1.08,
+  impastoDepth: 50,
+  lightElevation: 45,
+  lightAzimuth: 130,
+  specular: 0.3,
+  shininess: 24,
+  bristle: 0.6,
+  canvasWeave: 0.3,
+  weaveScale: 4,
 };
 
 export const DEFAULT_OUTPUT_PARAMS: OutputParams = {

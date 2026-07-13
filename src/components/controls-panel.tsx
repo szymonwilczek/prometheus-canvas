@@ -51,6 +51,14 @@ export function ControlsPanel({
             step={0.5}
             onChange={(v) => set("edgeQ", v)}
           />
+          <ParamSlider
+            label="Stroke length (flow)"
+            value={params.strokeLength}
+            min={0}
+            max={20}
+            unit="px"
+            onChange={(v) => set("strokeLength", v)}
+          />
         </CardContent>
       </Card>
 
@@ -128,6 +136,30 @@ export function ControlsPanel({
             max={128}
             step={2}
             onChange={(v) => set("shininess", v)}
+          />
+          <ParamSlider
+            label="Bristle grooves"
+            value={params.bristle}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("bristle", v)}
+          />
+          <ParamSlider
+            label="Canvas weave"
+            value={params.canvasWeave}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("canvasWeave", v)}
+          />
+          <ParamSlider
+            label="Weave pitch"
+            value={params.weaveScale}
+            min={2}
+            max={12}
+            unit="px"
+            onChange={(v) => set("weaveScale", v)}
           />
         </CardContent>
       </Card>
