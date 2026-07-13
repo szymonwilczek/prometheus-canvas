@@ -40,6 +40,7 @@ on *your* CPU - no model, no scraping, no rental, no bill:
 |---|---|---|
 | Painterly smoothing | [Kuwahara filter](https://en.wikipedia.org/wiki/Kuwahara_filter) | 1976 |
 | Brush strokes follow contours | Structure tensor + line integral convolution | 1987/1993 |
+| Palette-knife smears | Stroke-based rendering (Haeberli / Hertzmann) | 1990/1998 |
 | Stroke-boundary detection | [Sobel operator](https://en.wikipedia.org/wiki/Sobel_operator) | 1968 |
 | 3D paint relief | [Blinn-Phong illumination over a heightmap](https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model) | 1975/1977 |
 | Bristle grooves & canvas weave | Procedural phase functions + integer hash noise | classic CG |
@@ -145,6 +146,29 @@ zero in flat regions. Each pixel's color is then advected up to *L* steps both w
 the field (**line integral convolution**, Cabral & Leedom 1993), re-reading the field at
 every step so strokes bend around curves. Running this *after* quantization smears hard
 pigment boundaries into directional, brushy transitions.
+
+### 3b. Palette-knife mode (stroke-based rendering)
+
+Alternative renderer doesn't filter pixels - it **paints**. Classic stroke-based
+rendering (Haeberli 1990, Hertzmann 1998): the image is rebuilt from discrete,
+overlapping smears of flat paint, one load of pigment per knife motion:
+
+- **Placement**: jittered grid, coarse-to-fine layers. Finer layers fire only where the
+  canvas still disagrees with the target image (mean luma error over the smear
+  footprint) - faces regain detail while skies stay broad slabs, which is the decision
+  a painter makes with their eyes, expressed as an error integral.
+- **Orientation**: a sign-aligned average of the structure-tensor flow per smear; in
+  flat regions the knife follows the light azimuth with hand wobble.
+- **Smearing**: coverage runs in hash-jittered lanes parallel to the drag and fades
+  toward lift-off, so the paint underneath shows through in streaks - the visual
+  signature of a metal blade running out of pigment.
+- **Relief**: every smear writes a tilted slab (thin at blade-down, thick at lift-off,
+  a bead squeezed over the long edges) into the height field, *overwriting* what was
+  below. Wet paint covers wet paint; the Blinn-Phong pass then lights real layered
+  strokes.
+
+All randomness is an integer hash of grid indices - the same photo and sliders always
+produce the same painting.
 
 ### 4. Saturation & contrast
 
