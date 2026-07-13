@@ -7,9 +7,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { ParamSlider } from "@/components/param-slider";
 import { PRESETS } from "@/engine/presets";
-import type { OutputParams, PaintParams } from "@/engine/types";
+import {
+  DEFAULT_OUTPUT_PARAMS,
+  DEFAULT_PAINT_PARAMS,
+  type OutputParams,
+  type PaintParams,
+} from "@/engine/types";
 
 interface ControlsPanelProps {
   params: PaintParams;
@@ -56,6 +62,18 @@ export function ControlsPanel({
           </SelectContent>
         </Select>
       </div>
+
+      <Button
+        variant="outline"
+        size="sm"
+        className="w-full"
+        onClick={() => {
+          onParams({ ...DEFAULT_PAINT_PARAMS });
+          onOutput({ ...DEFAULT_OUTPUT_PARAMS });
+        }}
+      >
+        Reset to defaults
+      </Button>
       <Card size="sm">
         <CardHeader>
           <CardTitle className="text-sm">Brush — Kuwahara</CardTitle>
