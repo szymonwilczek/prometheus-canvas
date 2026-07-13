@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { ParamSlider } from "@/components/param-slider";
+import { PRESETS } from "@/engine/presets";
 import type { OutputParams, PaintParams } from "@/engine/types";
 
 interface ControlsPanelProps {
@@ -28,8 +29,33 @@ export function ControlsPanel({
   const setOut = <K extends keyof OutputParams>(k: K, v: OutputParams[K]) =>
     onOutput({ ...output, [k]: v });
 
+  const activePreset =
+    PRESETS.find((p) => JSON.stringify(p.params) === JSON.stringify(params))
+      ?.id ?? "";
+
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <Label className="text-xs">Preset</Label>
+        <Select
+          value={activePreset}
+          onValueChange={(id) => {
+            const preset = PRESETS.find((p) => p.id === id);
+            if (preset) onParams({ ...preset.params });
+          }}
+        >
+          <SelectTrigger size="sm" className="w-40">
+            <SelectValue placeholder="Custom" />
+          </SelectTrigger>
+          <SelectContent>
+            {PRESETS.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <Card size="sm">
         <CardHeader>
           <CardTitle className="text-sm">Brush — Kuwahara</CardTitle>
@@ -90,6 +116,22 @@ export function ControlsPanel({
             step={0.05}
             onChange={(v) => set("contrast", v)}
           />
+          <ParamSlider
+            label="Pigment mixing noise"
+            value={params.pigmentNoise}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("pigmentNoise", v)}
+          />
+          <ParamSlider
+            label="Noise patch size"
+            value={params.noiseScale}
+            min={2}
+            max={24}
+            unit="px"
+            onChange={(v) => set("noiseScale", v)}
+          />
         </CardContent>
       </Card>
 
@@ -136,6 +178,14 @@ export function ControlsPanel({
             max={128}
             step={2}
             onChange={(v) => set("shininess", v)}
+          />
+          <ParamSlider
+            label="Cavity shadows"
+            value={params.cavity}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("cavity", v)}
           />
           <ParamSlider
             label="Bristle grooves"
