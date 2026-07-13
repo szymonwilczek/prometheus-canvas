@@ -27,8 +27,10 @@ computer-graphics algorithm:
 | Effect | Algorithm | Era |
 |---|---|---|
 | Painterly smoothing | [Kuwahara filter](https://en.wikipedia.org/wiki/Kuwahara_filter) | 1976 |
+| Brush strokes follow contours | Structure tensor + line integral convolution | 1987/1993 |
 | Stroke-boundary detection | [Sobel operator](https://en.wikipedia.org/wiki/Sobel_operator) | 1968 |
 | 3D paint relief | [Blinn-Phong illumination over a heightmap](https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model) | 1975/1977 |
+| Bristle grooves & canvas weave | Procedural phase functions + integer hash noise | classic CG |
 | Limited pigment palette | [k-means color quantization](https://en.wikipedia.org/wiki/K-means_clustering) | 1957/1967 |
 | 4K upscaling | [Lanczos3 resampling](https://en.wikipedia.org/wiki/Lanczos_resampling) | 1979 |
 | Final crispness | [Unsharp masking](https://en.wikipedia.org/wiki/Unsharp_masking) | ~1930s (darkroom technique) |
@@ -63,11 +65,14 @@ The pipeline runs in this order, entirely inside a Web Worker hosting the WASM m
 
 [1] Kuwahara filter          - painterly foundation (paint splotches)
 [2] k-means quantization     - limited physical pigment simulation
-[3] Saturation & contrast    - oil-paint vibrance
-[4] Sobel heightmap          - where does paint pile up?
-[5] Blinn-Phong shading      - impasto relief with a movable light source
-[6] Lanczos3 resampling      - mathematical upscaling to 2x/4x
-[7] Unsharp mask             - final output crispness
+[3] Flow-guided strokes      - LIC along the structure tensor: splotches
+                               stretch into strokes that bend with contours
+[4] Saturation & contrast    - oil-paint vibrance
+[5] Heightmap synthesis      - Sobel ridges ^1.4 + bristle grooves
+                               + procedural plain-weave canvas
+[6] Blinn-Phong shading      - impasto relief with a movable light source
+[7] Lanczos3 resampling      - mathematical upscaling to 2x/4x
+[8] Unsharp mask             - final output crispness
 
 [OUTPUT] RGBA output
 ```
@@ -75,11 +80,13 @@ The pipeline runs in this order, entirely inside a Web Worker hosting the WASM m
 ### 1. Kuwahara filter
 
 For each pixel, four overlapping square sectors (NW, NE, SW, SE) of radius *r* are
-examined. Each sector's mean color and luminance variance are computed in **O(1)** per
-sector using integral images (summed-area tables) over both channel sums and squared sums:
+examined. Each sector's mean color and luminance variance come from *anchored
+sliding-window box sums* (the streaming cousin of summed-area tables): one separable
+pass computes every window sum in O(1) amortized per pixel, and the four sectors of a
+pixel are that window sampled at four offsets:
 
 ```math
-\sum -table:  S\left(x,y\right) = I\left(x,y\right) + S\left(x-1,y\right) + S\left(x,y-1\right) - S\left(x-1,y-1\right)
+running \sum:  add row[x], subtract row[x-r-1]   (then same vertically)
 {\sigma}^2 = E\left[X^2\right] − {\left(E\left[X\right]\right)}^2
 ```
 
@@ -104,18 +111,37 @@ luminance-stratified initialization followed by Lloyd iterations on a subsampled
 set, then snapping every pixel to its nearest centroid. Deterministic seeding means the
 same image + same k always yields the same palette - reproducibility over vibes.
 
-### 3. Saturation & contrast
+### 3. Flow-guided brush strokes (structure tensor + LIC)
+
+A painter drags the brush *along* contours. The smoothed **structure tensor**
+(Sobel gradient outer product, Gaussian-blurred) encodes local orientation; its minor
+eigenvector - computed in closed form from the 2×2 symmetric eigensystem, no `atan2` -
+points along image flow, and the eigenvalue spread gives an anisotropy measure that is
+zero in flat regions. Each pixel's color is then advected up to *L* steps both ways along
+the field (**line integral convolution**, Cabral & Leedom 1993), re-reading the field at
+every step so strokes bend around curves. Running this *after* quantization smears hard
+pigment boundaries into directional, brushy transitions.
+
+### 4. Saturation & contrast
 
 Plain per-pixel linear algebra around the Rec. 601 luma axis:
 $\`out = luma + (in − luma) \cdot s\`$, then $\`out = (out − 0.5) \cdot c + 0.5\`$.
 
-### 4-5. Impasto
+### 5–6. Impasto: heightmap synthesis + Blinn-Phong illumination
 
-Oil paint is three-dimensional; light rakes across ridges of paint. I reconstruct this:
+Oil paint is three-dimensional; light rakes across ridges of paint. The height field is
+assembled from three mathematically distinct layers:
 
-- Grayscale **heightmap** is built from the Sobel gradient magnitude of the painted
-  image - paint *piles up* along stroke boundaries. The map is box-blurred so ridges have
-  flanks for light to catch.
+- **Ridges** - Sobel gradient magnitude of the painted image, raised to the power 1.4
+  (bold stroke edges keep their paint bead, faint pigment-band outlines fade), then
+  box-blurred so ridges have flanks for light to catch.
+- **Bristle grooves** - a sine phase running *across* the local stroke direction,
+  phase-jittered by integer hash noise so individual hairs stay irregular, gated by
+  anisotropy^2 so grooves exist only along genuine strokes.
+- **Canvas weave** - procedural plain-weave fabric: warp/weft threads alternate
+  over/under on a checkerboard, each thread crowned by |sin|, thickness jittered per
+  cell - attenuated wherever paint is thick. Heavy impasto hides the canvas; thin
+  washes reveal it, exactly like a real painting.
 - Surface normals are derived from the heightmap gradient, scaled by the **Impasto
   Depth** slider: $\`N = normalize(\frac{-\delta h}{\delta x} \cdot d, \frac{-\delta h}{\delta y} \cdot d, 1)\`$.
 - **Blinn-Phong** model lights every pixel:
@@ -124,12 +150,12 @@ Oil paint is three-dimensional; light rakes across ridges of paint. I reconstruc
   sliders, and $\`\hat{H}\`$ is the half-vector. Drag the azimuth and watch the paint ridges cast
   shadows from the other side - that is a real illumination model, not a filter preset.
 
-### 6. Lanczos3 resampling
+### 7. Lanczos3 resampling
 
 Upscaling uses the Lanczos kernel with a = 3:
 
 ```math
-L(x) = sinc(x) · sinc(x/3)   for |x| < 3,   0 otherwise
+L(x) = sinc(x) \cdot sinc(x/3)   for |x| < 3,   0 otherwise
 sinc(x) = \frac{sin(\pi x)}{\pi x}
 ```
 
@@ -137,7 +163,7 @@ Implemented as two separable passes (horizontal, then vertical) with per-destina
 precomputed kernel weights. Lanczos3 is the classical gold standard for image resampling -
 the same mathematics your photo editor uses when you pick "best quality".
 
-### 7. Unsharp mask
+### 8. Unsharp mask
 
 $\`out = in + amount \cdot (in − gaussian(in))\`$ - the digital descendant of a darkroom
 technique that predates the transistor.
