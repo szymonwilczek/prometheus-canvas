@@ -23,9 +23,14 @@
  *   identically.
  * - RELIEF: each smear writes its own thickness profile into the height field,
  *   *overwriting* what was below (wet paint covers wet paint):
- *   body that thickens toward the lift-off end, a bead at the long edges where
- *   the blade squeezes paint out, and a per-smear base thickness.
+ *   body that thickens toward the lift-off end, a slightly hollowed center
+ *   and twin raised beads along the lateral margins where the flat blade
+ *   squeezes displaced paint outward (per-smear tilt favors one bead).
  *   Blinn-Phong pass then lights real layered strokes instead of a texture.
+ * - SKIPPING: a dry blade rides the peaks of the existing relief and the
+ *   canvas tooth, leaving organic voids in the valleys (threshold `dry`).
+ * - SMUDGING: wet-on-wet - each pixel folds in pigment sampled upstream
+ *   along the drag, so the blade visibly shears the layer below (`drag`).
  *
  * Deterministic: all randomness is the integer hash of grid indices.
  */
@@ -77,9 +82,18 @@ static f32 region_error(const u8 *canvas, const u8 *target, i32 w, i32 h,
   return err / (f32)cnt;
 }
 
-static void draw_smear(u8 *img, f32 *height, i32 w, i32 h, f32 cx, f32 cy,
-                       f32 dx, f32 dy, f32 len, f32 wid, const f32 *c0,
-                       const f32 *c1, f32 thick, i32 sd1, i32 sd2) {
+/*
+ * One knife smear.
+ * `hbase` is the relief as it stood at the start of the current layer
+ * (blurred), the reference topography the blade skips across.
+ * `ridge` scales the squeezed twin edge beads, `tilt` (signed, per smear)
+ * favors one bead over the other as the blade rides at an angle,
+ * `dry` is the skipping threshold and `drag` the wet-on-wet pigment pickup.
+ */
+static void draw_smear(u8 *img, f32 *height, const f32 *hbase, i32 w, i32 h,
+                       f32 cx, f32 cy, f32 dx, f32 dy, f32 len, f32 wid,
+                       const f32 *c0, const f32 *c1, f32 thick, f32 ridge,
+                       f32 tilt, f32 dry, f32 drag, i32 sd1, i32 sd2) {
   f32 hl = len * 0.5f, hw = wid * 0.5f;
   f32 reach = hl + hw;
   i32 x0 = pc_maxi(0, (i32)(cx - reach));
@@ -102,12 +116,18 @@ static void draw_smear(u8 *img, f32 *height, i32 w, i32 h, f32 cx, f32 cy,
       f32 u = a / len + 0.5f;    /* 0 at start, 1 at lift-off */
       f32 vn = pc_fabsf(b) / hw; /* 0 center, 1 long edge     */
 
-      /* Thickness:
-       * strongly tilted slab - thin where the blade lands, thick where it lifts
-       * - so each smear is a plane catching the light on its own terms, plus
-       * faint bead squeezed over the long edges */
-      f32 hp = thick * ((0.50f + 0.50f * u) * (1.0f - 0.15f * vn * vn) +
-                        0.06f * smoothstep(0.6f, 1.0f, vn));
+      /* Thickness - the squeezed profile of a flat blade:
+       * metal presses the body of the smear slightly hollow and pushes
+       * the displaced paint OUTWARD into two raised beads along the lateral
+       * margins (peaking near vn ~ 0.85).
+       * `tilt` leans the blade so one bead squeezes out heavier than the other,
+       * and the whole slab still thickens toward lift-off */
+      f32 bead =
+          smoothstep(0.50f, 0.85f, vn) * (1.0f - smoothstep(0.88f, 1.0f, vn));
+      f32 hollow = 1.0f - 0.22f * ridge * (1.0f - smoothstep(0.35f, 0.75f, vn));
+      f32 side = 1.0f + tilt * (b > 0.0f ? 1.0f : -1.0f);
+      f32 hp =
+          thick * (0.50f + 0.50f * u) * (hollow + 0.55f * ridge * bead * side);
 
       /* the smear, not the tile: blade never covers evenly.
        * Coverage runs in hash-jittered lanes parallel to the drag
@@ -118,12 +138,44 @@ static void draw_smear(u8 *img, f32 *height, i32 w, i32 h, f32 cx, f32 cy,
       f32 lane_op = 0.62f + 0.38f * pc_hash2(lane * 31 + sd1, sd2);
       f32 opacity = alpha * lane_op * (1.0f - 0.45f * u * u);
 
+      usize i = (usize)py * (usize)w + (usize)px;
+
+      /* Dry-brush skipping:
+       * starved blade rides the micro-topography, depositing only on the peaks
+       * of what is already on the canvas.
+       * `peak` scores this pixel against the layer-start relief (+ canvas tooth
+       * noise);
+       * `dry` slides the deposit threshold - 0 wet knife lays paint everywhere,
+       * 1 only the highest points catch pigment and the valleys stay as organic
+       * voids */
+      if (dry > 0.0f) {
+        f32 tooth = pc_hash2(px * 3 + 11, py * 3 + 29);
+        f32 peak = pc_clampf(0.5f + (height[i] - hbase[i]) * 8.0f, 0.0f, 1.0f);
+        peak = pc_clampf(peak + (tooth - 0.5f) * 0.35f, 0.0f, 1.0f);
+        f32 dep = smoothstep(dry - 0.30f, dry + 0.15f, peak);
+        opacity *= 1.0f - dry * (1.0f - dep);
+      }
+
       /* flat knife mix dragged toward the far-end sample */
       f32 cr = c0[0] + (c1[0] - c0[0]) * u;
       f32 cg = c0[1] + (c1[1] - c0[1]) * u;
       f32 cb = c0[2] + (c1[2] - c0[2]) * u;
 
-      usize i = (usize)py * (usize)w + (usize)px;
+      /* Wet-on-wet smudging:
+       * blade shears the wet layer below and carries some of it forward -
+       * re-sample the canvas few pixels upstream (against the drag direction)
+       * and fold that pigment into the load.
+       * Tail, where the knife has run out of its own paint, drags hardest */
+      if (drag > 0.0f) {
+        i32 ux = pc_clampi((i32)((f32)px - dx * 3.0f), 0, w - 1);
+        i32 uy = pc_clampi((i32)((f32)py - dy * 3.0f), 0, h - 1);
+        const u8 *up = img + ((usize)uy * (usize)w + (usize)ux) * 4;
+        f32 m = drag * 0.45f * (0.35f + 0.65f * u);
+        cr += ((f32)up[0] - cr) * m;
+        cg += ((f32)up[1] - cg) * m;
+        cb += ((f32)up[2] - cb) * m;
+      }
+
       usize o = i * 4;
       img[o] = pc_clamp255((f32)img[o] + (cr - (f32)img[o]) * opacity);
       img[o + 1] =
@@ -140,20 +192,24 @@ static void draw_smear(u8 *img, f32 *height, i32 w, i32 h, f32 cx, f32 cy,
 }
 
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
-              f32 detail, f32 azim, f32 tint) {
+              f32 detail, f32 azim, f32 tint, f32 ridge, f32 dry, f32 drag) {
   if (size < 4)
     size = 4;
   if (layers < 1)
     layers = 1;
   if (layers > 4)
     layers = 4;
+  ridge = pc_clampf(ridge, 0.0f, 1.0f);
+  dry = pc_clampf(dry, 0.0f, 1.0f);
+  drag = pc_clampf(drag, 0.0f, 1.0f);
 
   usize n = (usize)w * (usize)h;
   u8 *target = (u8 *)pc_alloc(n * 4);
   f32 *fx = (f32 *)pc_alloc(n * 4);
   f32 *fy = (f32 *)pc_alloc(n * 4);
   f32 *aniso = (f32 *)pc_alloc(n * 4);
-  if (!target || !fx || !fy || !aniso)
+  f32 *hbase = (f32 *)pc_alloc(n * 4);
+  if (!target || !fx || !fy || !aniso || !hbase)
     return;
 
   memcpy(target, img, n * 4);
@@ -176,6 +232,10 @@ void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
     i32 sz = size >> L;
     if (sz < 3)
       break;
+    /* topography the blade skips across is the relief as it stood when this
+     * layer began, softened so single lane streak does not read as a mountain
+     */
+    pc_box_blur(height, hbase, w, h, 2);
     f32 spacing = (f32)sz * 0.62f;
     i32 gw = (i32)((f32)w / spacing) + 2;
     i32 gh = (i32)((f32)h / spacing) + 2;
@@ -250,8 +310,13 @@ void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
 
         f32 thick = 0.35f + 0.30f * pc_hash2(gx * 13 + seed, gy * 17);
 
-        draw_smear(img, height, w, h, cx, cy, dx, dy, len, wid, c0, c1, thick,
-                   gx * 131 + seed, gy * 197 + 3);
+        /* per-smear blade angle: one edge bead squeezes out heavier */
+        f32 tilt =
+            ridge * (pc_hash2(gx * 29 + seed, gy * 31 + 5) - 0.5f) * 0.8f;
+
+        draw_smear(img, height, hbase, w, h, cx, cy, dx, dy, len, wid, c0, c1,
+                   thick, ridge, tilt, dry, drag, gx * 131 + seed,
+                   gy * 197 + 3);
       }
     }
   }

@@ -26,7 +26,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 weave_scale, f32 cavity, f32 pigment_noise, f32 noise_scale,
                 i32 render_mode, i32 knife_size, f32 knife_detail,
                 f32 sbr_undercoat, f32 sbr_form, f32 sbr_detail,
-                f32 sbr_alignment) {
+                f32 sbr_alignment, f32 knife_ridge, f32 knife_dry,
+                f32 knife_drag) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
   /* Quantize before any stroke pass:
    * all renderers then work with limited physical palette */
@@ -61,7 +62,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     f32 *height = (f32 *)pc_alloc(n * 4);
     if (!height)
       return;
-    pc_knife(dst, height, w, h, knife_size, 3, knife_detail, light_azim, 0.10f);
+    pc_knife(dst, height, w, h, knife_size, 3, knife_detail, light_azim, 0.10f,
+             knife_ridge, knife_dry, knife_drag);
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);

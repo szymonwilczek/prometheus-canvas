@@ -104,7 +104,7 @@ void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
 
 /* knife.c */
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,
-              f32 detail, f32 azim, f32 tint);
+              f32 detail, f32 azim, f32 tint, f32 ridge, f32 dry, f32 drag);
 void pc_lanczos3(const u8 *src, i32 sw, i32 sh, u8 *dst, i32 dw, i32 dh);
 void pc_unsharp(u8 *img, i32 w, i32 h, f32 amount, f32 sigma);
 
