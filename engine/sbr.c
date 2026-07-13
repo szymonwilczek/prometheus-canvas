@@ -368,29 +368,45 @@ static void paint_stroke(Sbr *s, f32 x0, f32 y0, f32 rad, i32 max_pts,
       pc_mix_paint(res, cvf, s->drag * 0.30f, s->vib, res);
     }
 
+    /* direction for the next segment, computed *before* stamping:
+     * how hard the path bends here is the hand-pressure signal */
+    f32 ndx = dx, ndy = dy;
+    {
+      f32 vx = s->fx[q], vy = s->fy[q];
+      if (vx * dx + vy * dy < 0.0f) {
+        vx = -vx;
+        vy = -vy;
+      }
+      if (s->aniso[q] >= 0.15f) {
+        f32 bx = dx + (vx - dx) * alignment;
+        f32 by = dy + (vy - dy) * alignment;
+        f32 bl = pc_sqrtf(bx * bx + by * by);
+        if (bl > 1e-4f) {
+          ndx = bx / bl;
+          ndy = by / bl;
+        }
+      }
+    }
+    f32 curv = 1.0f - (dx * ndx + dy * ndy); /* 0 straight, grows w/ turn */
+
     f32 tail = (f32)pts / (f32)max_pts;
+    /* Pressure and taper:
+     * brush lands thin (head taper), presses to full width through the body,
+     * widens where the path turns hard - the hand slows down and leans in -
+     * and thins again as it lifts off at the tail */
+    f32 wmul = (0.55f + 0.45f * smoothstep(0.0f, 0.22f, tail)) *
+               (1.0f - 0.45f * smoothstep(0.72f, 1.0f, tail)) *
+               (1.0f + pc_minf(0.5f, 5.0f * curv));
+
     /* exponential depletion of the load */
     f32 fade = 0.55f + 0.45f * pc_expf(-2.0f * tail);
-    stamp_segment(s, px, py, nx, ny, rad, res, thick, fade, tail, dragged,
-                  seed + pts * 97);
+    stamp_segment(s, px, py, nx, ny, rad * wmul, res, thick, fade, tail,
+                  dragged, seed + pts * 97);
     dragged += step;
     px = nx;
     py = ny;
-
-    f32 vx = s->fx[q], vy = s->fy[q];
-    if (vx * dx + vy * dy < 0.0f) {
-      vx = -vx;
-      vy = -vy;
-    }
-    if (s->aniso[q] >= 0.15f) {
-      f32 bx = dx + (vx - dx) * alignment;
-      f32 by = dy + (vy - dy) * alignment;
-      f32 bl = pc_sqrtf(bx * bx + by * by);
-      if (bl > 1e-4f) {
-        dx = bx / bl;
-        dy = by / bl;
-      }
-    }
+    dx = ndx;
+    dy = ndy;
   }
 
   /* boundary right at the anchor: still leave one dab of paint */
