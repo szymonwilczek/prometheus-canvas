@@ -128,6 +128,10 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
 void pc_craquelure(f32 *height, f32 *crack, i32 w, i32 h, f32 tension,
                    f32 vdepth);
 
+/* pipeline.c: elastic canvas-stretch warp of the final image */
+void pc_canvas_warp(u8 *img, i32 w, i32 h, f32 tension, f32 poisson,
+                    f32 wrinkle_freq);
+
 /* field.c */
 void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);
 void pc_sbr_field(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy, f32 *aniso,
