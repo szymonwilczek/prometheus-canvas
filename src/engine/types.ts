@@ -4,6 +4,13 @@
  */
 export type PaintMode = "brush" | "knife" | "sbr";
 
+/**
+ * Gallery light source for the 8-band spectral renderer:
+ * CIE D65 daylight, CIE A incandescent (2856 K), CIE F11 tri-band
+ * fluorescent, or candle light (1900 K Planck radiator).
+ */
+export type Illuminant = "d65" | "a" | "f11" | "candle";
+
 /** Parameters for the constant-resolution paint pipeline (stages 1-5). */
 export interface PaintParams {
   /**
@@ -140,6 +147,15 @@ export interface PaintParams {
   warpPoisson: number;
   /** Corner wrinkle frequency: ripple count in each folded corner. */
   wrinkleFrequency: number;
+  /** Spectral rendering: gallery light source SPD. */
+  illuminant: Illuminant;
+  /**
+   * Metameric shift strength (0-1). 0 bypasses the spectral engine
+   * entirely (colorimetric sRGB); above 0 all Kubelka-Munk mixing,
+   * dipole scattering and shading run on 8 wavelength bands and the
+   * reflected spectrum is integrated under the selected illuminant.
+   */
+  spectralIntensity: number;
 }
 
 /** Parameters for the output stage (stages 6-7). */
@@ -197,6 +213,8 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   warpTension: 0,
   warpPoisson: 0.3,
   wrinkleFrequency: 5,
+  illuminant: "d65",
+  spectralIntensity: 0,
 };
 
 export const DEFAULT_OUTPUT_PARAMS: OutputParams = {

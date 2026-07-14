@@ -231,7 +231,12 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 sss_scatter, f32 sss_absorb, f32 varnish, f32 varnish_ior,
                 f32 gloss_dep, f32 crack_tension, f32 crack_depth,
                 f32 crack_dirt, f32 warp_tension, f32 warp_poisson,
-                f32 wrinkle_freq) {
+                f32 wrinkle_freq, i32 illuminant, f32 spectral) {
+  /* configure the spectral engine before any stroke pass runs:
+   * wet-on-wet Kubelka-Munk mixing inside the renderers is per-band
+   * whenever the metameric shift is active */
+  pc_spectral_setup(illuminant, spectral);
+
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
   /* Quantize before any stroke pass:
    * all renderers then work with limited physical palette */
@@ -254,6 +259,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
       .gloss_dep = gloss_dep,
       .crack = 0,
       .crack_dirt = crack_dirt,
+      .illuminant = illuminant,
+      .spectral = spectral,
   };
 
   if (render_mode == 2) {

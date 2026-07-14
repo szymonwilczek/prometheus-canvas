@@ -46,6 +46,17 @@
  */
 #include "pc.h"
 
+/*
+ * Linseed binder optical dispersion across the 8 spectral bands:
+ * blue light is absorbed and scattered more strongly than red inside
+ * the oil film, so the BSSRDF dipole constants (alpha', sigma_tr)
+ * become per-wavelength-band quantities when spectral shading is active.
+ */
+static const f32 BAND_SA[PC_NB] = {1.55f, 1.32f, 1.12f, 0.98f,
+                                   0.88f, 0.80f, 0.74f, 0.70f};
+static const f32 BAND_SS[PC_NB] = {1.22f, 1.13f, 1.06f, 1.00f,
+                                   0.95f, 0.91f, 0.88f, 0.85f};
+
 static f32 pow_int(f32 x, i32 e) {
   f32 r = 1.0f;
   while (e > 0) {
@@ -475,6 +486,7 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
   i32 sss_on = sp->sss_scatter > 0.0f;
   f32 alpha = 0.0f, str = 0.0f, zr = 0.0f, zv = 0.0f;
   f32 w_c = 1.0f, w_t = 0.0f;
+  f32 A_dip = 0.0f;
   i32 tap = 1;
   f32 *edge = 0;
   if (sss_on) {
@@ -485,9 +497,9 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
     str = pc_sqrtf(3.0f * sa * st); /* sigma_tr */
     const f32 NB = 1.48f;           /* linseed binder IOR */
     f32 fdr = -1.440f / (NB * NB) + 0.710f / NB + 0.668f + 0.0636f * NB;
-    f32 A = (1.0f + fdr) / (1.0f - fdr);
+    A_dip = (1.0f + fdr) / (1.0f - fdr);
     zr = 1.0f / st;
-    zv = zr * (1.0f + 4.0f * A / 3.0f);
+    zv = zr * (1.0f + 4.0f * A_dip / 3.0f);
     tap = pc_clampi((i32)(1.0f / str + 0.5f), 1, 4);
     f32 rd0 = dipole_rd(0.0f, alpha, str, zr, zv);
     f32 rd1 = dipole_rd((f32)tap, alpha, str, zr, zv);
@@ -497,6 +509,44 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
     edge = (f32 *)pc_alloc(n * 4);
     if (!edge)
       sss_on = 0;
+  }
+
+  /*
+   * Spectral shading:
+   * when any spectral feature is active, pass B runs on 8 wavelength bands
+   * instead of 3 display channels - pigment reflectance is upsampled per pixel,
+   * the glaze stack / chemical aging filter each band, the dipole gather uses
+   * per-band binder coefficients, and the reflected spectrum is integrated
+   * under the selected gallery illuminant (the metameric shift).
+   */
+  i32 spec_shade = sp->spectral > 0.0f || sp->glaze_layers > 0 ||
+                   (sp->age > 0.0f && sp->yellowing > 0.0f);
+  f32 ill_rgb[3] = {1.0f, 1.0f, 1.0f};
+  f32 wc_b[PC_NB], wt_b[PC_NB], alpha_b[PC_NB], str_b[PC_NB];
+  for (i32 k = 0; k < PC_NB; k++) {
+    wc_b[k] = 1.0f;
+    wt_b[k] = 0.0f;
+    alpha_b[k] = 0.0f;
+    str_b[k] = 0.0f;
+  }
+  if (spec_shade) {
+    pc_display_white(ill_rgb);
+    if (sss_on) {
+      for (i32 k = 0; k < PC_NB; k++) {
+        f32 sa_k = pc_maxf(sp->sss_absorb, 1e-3f) * BAND_SA[k];
+        f32 ss_k = sp->sss_scatter * BAND_SS[k];
+        f32 st_k = ss_k + sa_k;
+        alpha_b[k] = ss_k / st_k;
+        str_b[k] = pc_sqrtf(3.0f * sa_k * st_k);
+        f32 zr_k = 1.0f / st_k;
+        f32 zv_k = zr_k * (1.0f + 4.0f * A_dip / 3.0f);
+        f32 rd0 = dipole_rd(0.0f, alpha_b[k], str_b[k], zr_k, zv_k);
+        f32 rd1 = dipole_rd((f32)tap, alpha_b[k], str_b[k], zr_k, zv_k);
+        f32 sum = rd0 + 4.0f * rd1;
+        wc_b[k] = rd0 / sum;
+        wt_b[k] = rd1 / sum;
+      }
+    }
   }
 
   /* light and air-side half vector */
@@ -705,17 +755,16 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       usize i = (usize)y * (usize)w + (usize)x;
       f32 D = irr[i];
       f32 warm = 0.0f;
+      f32 sumn = 0.0f;
       if (sss_on) {
         i32 xm = pc_maxi(x - tap, 0), xp = pc_mini(x + tap, w - 1);
-        D = w_c * irr[i] + w_t * (irr[(usize)y * (usize)w + (usize)xm] +
-                                  irr[(usize)y * (usize)w + (usize)xp] +
-                                  irr[(usize)ym * (usize)w + (usize)x] +
-                                  irr[(usize)yp * (usize)w + (usize)x]);
+        sumn = irr[(usize)y * (usize)w + (usize)xm] +
+               irr[(usize)y * (usize)w + (usize)xp] +
+               irr[(usize)ym * (usize)w + (usize)x] +
+               irr[(usize)yp * (usize)w + (usize)x];
+        D = w_c * irr[i] + w_t * sumn;
         warm = 0.55f * alpha * edge[i] * pc_expf(-str * 6.0f * height[i]);
       }
-
-      f32 mult = D * inv_flat;
-      f32 spec = 255.0f * spc[i];
 
       f32 r = (f32)img[i * 4];
       f32 g = (f32)img[i * 4 + 1];
@@ -729,9 +778,46 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
         b += (22.0f - b) * c;
       }
 
-      img[i * 4] = pc_clamp255(r * (mult + warm * 1.10f) + spec);
-      img[i * 4 + 1] = pc_clamp255(g * (mult + warm * 0.55f) + spec * 0.97f);
-      img[i * 4 + 2] = pc_clamp255(b * (mult + warm * 0.22f) + spec * 0.90f);
+      if (!spec_shade) {
+        f32 mult = D * inv_flat;
+        f32 spec = 255.0f * spc[i];
+        img[i * 4] = pc_clamp255(r * (mult + warm * 1.10f) + spec);
+        img[i * 4 + 1] = pc_clamp255(g * (mult + warm * 0.55f) + spec * 0.97f);
+        img[i * 4 + 2] = pc_clamp255(b * (mult + warm * 0.22f) + spec * 0.90f);
+        continue;
+      }
+
+      /*
+       * Spectral composition:
+       * Pigment reflectance is upsampled to 8 bands, filtered by the physical
+       * film stack, shaded by the per-band dipole irradiance, and the emerging
+       * spectral radiance is integrated under the gallery illuminant.
+       * Scalar diffuse multiplier of the sRGB path acts in gamma space, so it
+       * is raised to 2.2 here to keep the perceived shading contrast identical
+       * between both paths.
+       */
+      f32 spd[PC_NB];
+      pc_rgb_to_spd(pc_srgbf_to_linear(r), pc_srgbf_to_linear(g),
+                    pc_srgbf_to_linear(b), spd);
+
+      f32 rad[PC_NB];
+      for (i32 k = 0; k < PC_NB; k++) {
+        f32 Db = sss_on ? wc_b[k] * irr[i] + wt_b[k] * sumn : D;
+        f32 wb = sss_on ? 0.55f * alpha_b[k] * edge[i] *
+                              pc_expf(-str_b[k] * 6.0f * height[i])
+                        : 0.0f;
+        f32 m = pc_maxf(Db * inv_flat + wb, 0.0f);
+        rad[k] = spd[k] * pc_powf(m + 1e-5f, 2.2f);
+      }
+      f32 outl[3];
+      pc_spd_to_display(rad, outl);
+
+      /* dielectric first-surface lobe reflects the gallery light directly -
+       * under candle light even the glints turn amber */
+      f32 sadd = spc[i];
+      img[i * 4] = pc_linear_to_srgb(outl[0] + sadd * ill_rgb[0]);
+      img[i * 4 + 1] = pc_linear_to_srgb(outl[1] + sadd * ill_rgb[1] * 0.97f);
+      img[i * 4 + 2] = pc_linear_to_srgb(outl[2] + sadd * ill_rgb[2] * 0.90f);
     }
   }
 }

@@ -122,6 +122,24 @@ void pc_display_white(f32 *rgb);
 /* sRGB transfer function, c in [0,255] */
 f32 pc_srgbf_to_linear(f32 c);
 u8 pc_linear_to_srgb(f32 v);
+
+/* multi-pass glazing:
+ * filter an opaque base reflectance spectrum through stack of `layers` diluted
+ * velatura films of the same local pigment
+ * (finite-thickness Kubelka-Munk films + Saunderson boundary correction) */
+void pc_glaze_apply(f32 *spd, f32 thickness, i32 layers, f32 dilution,
+                    f32 scatter, f32 ior);
+
+/* linseed-oil yellowing:
+ * extra absorption in the 400-460 nm bands, double-pass through the aged
+ * binder film */
+void pc_age_yellow(f32 *spd, f32 amount);
+
+/* metal-soap efflorescence:
+ * crystalline micro-deposits grown in the relief valleys, written into
+ * the height field; effl receives the crystal map */
+void pc_efflorescence(f32 *height, const f32 *crack, f32 *effl, i32 w, i32 h,
+                      f32 density, f32 scale);
 /*
  * Full physical shading state for pc_shade_height.
  * Optional pointers may be 0;
@@ -151,6 +169,24 @@ typedef struct {
   /* stress-fracture craquelure */
   const f32 *crack; /* V-groove depth per pixel from pc_craquelure, or 0 */
   f32 crack_dirt;   /* age: dirt accumulated inside the grooves */
+
+  /* spectral rendering: gallery illuminant & metameric shift */
+  i32 illuminant; /* PC_ILL_* id of the light source */
+  f32 spectral;   /* metameric shift strength; 0 = colorimetric sRGB bypass */
+
+  /* multi-pass glazing: velatura layer stack over the opaque base */
+  i32 glaze_layers;   /* number of glaze films, 0 removes the stack */
+  f32 glaze_dilution; /* binder:pigment ratio of each glaze pass (0-1) */
+  f32 glaze_scatter;  /* residual pigment scattering inside the glaze (0-1) */
+  f32 glaze_ior;      /* refractive index of the glaze medium, ~1.48 */
+
+  /* binder degradation: linseed yellowing + metal-soap efflorescence */
+  f32 age;          /* artwork age (0 = fresh, 1 = centuries) */
+  f32 yellowing;    /* linseed yellowing strength at full age */
+  f32 effl_density; /* metal-soap crystal coverage, 0 = none */
+  f32 effl_scale;   /* crystal colony size, px */
+  f32 effl_rough;   /* how matte the crystalline deposits shade (0-1) */
+  const f32 *effl;  /* crystal map written by pc_efflorescence, or 0 */
 } pc_shade;
 
 void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
@@ -166,6 +202,21 @@ void pc_craquelure(f32 *height, f32 *crack, i32 w, i32 h, f32 tension,
 /* pipeline.c: elastic canvas-stretch warp of the final image */
 void pc_canvas_warp(u8 *img, i32 w, i32 h, f32 tension, f32 poisson,
                     f32 wrinkle_freq);
+
+/* pipeline.c entry point (see pipeline.c for the stage order) */
+void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
+                f32 edge_q, i32 stroke_length, i32 pigments, f32 saturation,
+                f32 contrast, f32 impasto_depth, f32 light_elev, f32 light_azim,
+                f32 specular, i32 shininess, f32 bristle, f32 weave,
+                f32 weave_scale, f32 cavity, f32 pigment_noise, f32 noise_scale,
+                i32 render_mode, i32 knife_size, f32 knife_detail,
+                f32 sbr_undercoat, f32 sbr_form, f32 sbr_detail,
+                f32 sbr_alignment, f32 knife_ridge, f32 knife_dry,
+                f32 knife_drag, f32 vibrancy, f32 anisotropy, f32 fringe,
+                f32 sss_scatter, f32 sss_absorb, f32 varnish, f32 varnish_ior,
+                f32 gloss_dep, f32 crack_tension, f32 crack_depth,
+                f32 crack_dirt, f32 warp_tension, f32 warp_poisson,
+                f32 wrinkle_freq, i32 illuminant, f32 spectral);
 
 /* field.c */
 void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);

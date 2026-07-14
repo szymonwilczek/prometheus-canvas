@@ -333,6 +333,16 @@ static inline f32 km_r(f32 ks) {
  * Mix paint `b` into paint `a` at concentration t
  * (both 0-255 RGB, result in out, out may alias a)
  * vibrancy 0 = plain linear RGB, 1 = full subtractive Kubelka-Munk
+ *
+ * When the spectral engine is active (pc_spectral_setup with strength > 0)
+ * the Kubelka-Munk mix runs independently in all PC_NB wavelength bands:
+ * both paints are upsampled to reflectance spectra, K/S mixes linearly by
+ * concentration per band, and the mixed spectrum is brought back through the
+ * D65 reference observer. The spectral result is applied as a correction on top
+ * of the exact linear mix against the round trip of that same linear mix,
+ * so the upsample/downsample bias cancels and repeated wet-on-wet mixing cannot
+ * drift - what remains is precisely the spectral-vs-3-channel difference in
+ * gamut sharpening (real yellow+blue makes green, not gray).
  */
 void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out) {
   for (i32 k = 0; k < 3; k++) {
@@ -345,6 +355,35 @@ void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out) {
     } else {
       out[k] = lin;
     }
+  }
+  if (g_spectral_mix <= 0.0f || vibrancy <= 0.0f)
+    return;
+
+  const f32 I255 = 1.0f / 255.0f;
+  f32 sa[PC_NB], sb[PC_NB], sm[PC_NB], sl[PC_NB];
+  rgb_to_spd_raw(pc_clampf(a[0] * I255, 0.0f, 1.0f),
+                 pc_clampf(a[1] * I255, 0.0f, 1.0f),
+                 pc_clampf(a[2] * I255, 0.0f, 1.0f), sa);
+  rgb_to_spd_raw(pc_clampf(b[0] * I255, 0.0f, 1.0f),
+                 pc_clampf(b[1] * I255, 0.0f, 1.0f),
+                 pc_clampf(b[2] * I255, 0.0f, 1.0f), sb);
+  f32 lin3[3];
+  for (i32 k = 0; k < 3; k++)
+    lin3[k] = a[k] + (b[k] - a[k]) * t;
+  rgb_to_spd_raw(pc_clampf(lin3[0] * I255, 0.0f, 1.0f),
+                 pc_clampf(lin3[1] * I255, 0.0f, 1.0f),
+                 pc_clampf(lin3[2] * I255, 0.0f, 1.0f), sl);
+  for (i32 k = 0; k < PC_NB; k++) {
+    f32 ks = km_ks(sa[k]) * (1.0f - t) + km_ks(sb[k]) * t;
+    sm[k] = km_r(ks);
+  }
+  f32 rs[3], rl[3];
+  spd_to_rgb_anchored(sm, g_ill[PC_ILL_D65], rs);
+  spd_to_rgb_anchored(sl, g_ill[PC_ILL_D65], rl);
+  for (i32 k = 0; k < 3; k++) {
+    f32 sub_s = lin3[k] + (rs[k] - rl[k]) * 255.0f;
+    f32 target = lin3[k] + (sub_s - lin3[k]) * vibrancy;
+    out[k] += (target - out[k]) * g_spectral_mix;
   }
 }
 

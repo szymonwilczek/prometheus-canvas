@@ -56,6 +56,8 @@ interface EngineExports {
     warpTension: number,
     warpPoisson: number,
     wrinkleFreq: number,
+    illuminant: number,
+    spectral: number,
   ): void;
   pc_upscale(
     src: number,
@@ -82,6 +84,9 @@ async function init(): Promise<void> {
 }
 
 const DEG = Math.PI / 180;
+
+/* keep ids in sync with the PC_ILL_* constants in engine/pc.h */
+const ILLUMINANT_ID = { d65: 0, a: 1, f11: 2, candle: 3 } as const;
 
 function handle(req: WorkerRequest): void {
   if (!engine) throw new Error("engine not initialized");
@@ -150,6 +155,8 @@ function handle(req: WorkerRequest): void {
     p.warpTension,
     p.warpPoisson,
     p.wrinkleFrequency,
+    ILLUMINANT_ID[p.illuminant],
+    p.spectralIntensity,
   );
 
   if (out) {
