@@ -1,222 +1,231 @@
 # Prometheus
 
-**Oil-painting transformation of any image. Pure mathematics. Zero AI. Zero servers. Zero cost.**
-
-Upload a photo, move few sliders, and watch it become an impasto oil painting - computed
-entirely in your browser by C compiled to WebAssembly. No neural network is consulted.
-No pixel ever leaves your machine. No GPU farm burns electricity on your behalf.
+Upload photo, move few sliders, and watch it become an impasto oil painting with
+physically-mixed pigment, viscous palette-knife relief, and anisotropic varnish glints -
+computed entirely in your browser by freestanding C compiled to WebAssembly. No neural
+network is consulted. No pixel ever leaves your machine. No GPU farm burns electricity on
+your behalf.
 
 ---
 
 ## Manifesto
 
-This project exists because we are angry, and we think you should be too.
+This project exists because I was angry.
 
-Right now, somewhere, a person is dragging your family photo into a diffusion model,
-clicking one button, and charging **$10 for the JPEG**. Somewhere else an "app" charges
-$15/month - forever - for "AI oil painting portraits", and underneath the landing page
-there is nothing but a file upload form, a single HTTP call to a model someone else
-trained on paintings scraped from artists who were never asked, and a paywall bolted in
-front of it. Etsy listings sell "hand-crafted digital oil portraits" that are one prompt
-and eleven seconds of GPU time. Subscription tiers. Watermarks on the "free" version.
-"Credits." For *this*.
+I saw some posts about selling AI made wallpapers that made uploaded images into oil paintings.
+Those *personas* were clicking one button, and charging **\$10 for the JPEG**.
 
-Here is what they are hoping you never find out: **the painterly look was solved by
-mathematics half a century ago, published openly, and it has been sitting in the public
-literature free of charge ever since.** Kuwahara, 1976. Sobel, 1968. Blinn and Phong,
-1977. Lanczos, 1979. These people gave their work to everyone, forever. The sellers
-wrapped a rental GPU around a scraped model and priced it like craftsmanship.
+Somewhere else an "app" charges **€10/month - forever** - for "AI oil painting portraits,"
+and underneath the landing page there is nothing but a file-upload form, a single HTTP call
+to a model someone else trained on paintings **scraped from artists who were never asked,
+never credited, and never paid**, and a paywall bolted in front of it. Subscription tiers.
+Watermarks on the "free" version. "Credits." For *this*.
 
-Nobody painted your $10 "painting". Nobody even *computed* it honestly - they rented the
-computation, marked it up, and kept your photo.
+I reject the **black-boxification of art**. I reject the lazy, cloud-hosted AI wrappers
+whose entire product is somebody else's API key. And I reject the aesthetic they produce:
+that dull, grayish **digital mud** - the smeared, desaturated sludge you get when a network
+hallucinates a "painting," or when a naive filter blends colors by averaging RGB channels
+and turns every confident brushstroke into a muddy brown compromise. Linear RGB blending is
+a lie about how paint works. Neural inference is a lie about who made the art.
 
-**Mathematics was free. Mathematics is free. Mathematics will remain free.**
+**My fundamental thesis:** pure, deterministic physics and low-level mathematics, running
+locally on the user's own browser via **freestanding WebAssembly**, can achieve stunning
+physical rendering with **zero server footprint, zero data harvesting, and absolute user
+control.** Every stroke is reproducible. Every color is derived from a citable optical
+model. The same image and the same sliders always produce exactly the same painting, bit
+for bit, on your hardware, offline, forever. There is no model file. There is no inference.
+There is no telemetry. The whole engine is a few kilobytes of C you can read, audit, learn
+from, and steal.
 
-Prometheus is proof by construction. Every visual effect in this application is a
-classic, citable computer-vision or computer-graphics algorithm running in *your* browser
-on *your* CPU - no model, no scraping, no rental, no bill:
+Mathematics was free and will remain that way.
 
-| Effect | Algorithm | Era |
-|---|---|---|
-| Painterly smoothing | [Kuwahara filter](https://en.wikipedia.org/wiki/Kuwahara_filter) | 1976 |
-| Brush strokes follow contours | Structure tensor + line integral convolution | 1987/1993 |
-| Palette-knife smears | Stroke-based rendering (Haeberli / Hertzmann) | 1990/1998 |
-| Stroke-boundary detection | [Sobel operator](https://en.wikipedia.org/wiki/Sobel_operator) | 1968 |
-| 3D paint relief | [Blinn-Phong illumination over a heightmap](https://en.wikipedia.org/wiki/Blinn%E2%80%93Phong_reflection_model) | 1975/1977 |
-| Bristle grooves & canvas weave | Procedural phase functions + integer hash noise | classic CG |
-| Limited pigment palette | [k-means color quantization](https://en.wikipedia.org/wiki/K-means_clustering) | 1957/1967 |
-| 4K upscaling | [Lanczos3 resampling](https://en.wikipedia.org/wiki/Lanczos_resampling) | 1979 |
-| Final crispness | [Unsharp masking](https://en.wikipedia.org/wiki/Unsharp_masking) | ~1930s (darkroom technique) |
+### UI Confession
 
-There is no model file. There is no inference. There is no telemetry. The entire "engine"
-is a few kilobytes of freestanding C99 compiled to WebAssembly, and every line of it is in
-this repository for you to read, audit, learn from, and steal.
-
-### What I assert
-
-1. **Local-first is a right, not a tier.** Your images are processed in a Web Worker on
-   your CPU. The app works offline. There is nothing to subscribe to, because there is
-   no recurring cost to pass on - that is what "no servers" actually means.
-2. **Mathematics is not obsolete.** A 1976 filter with an O(1)-per-pixel optimization
-   produces painterly results at interactive speed on a laptop. Not everything needs a
-   billion parameters, and nothing here needed even one.
-3. **Engineering beats wrapping.** The difficulty of a product should live in its code,
-   not in its pricing page. If your entire product is somebody else's API call, the
-   price of your product is somebody else's API price - everything above that is the
-   fee you charge for hoping your customers don't know better.
-4. **Free means free.** GPL-2.0 licensed (see [LICENSE](LICENSE)), no accounts, no
-   watermarks, no "3 free credits" - and copyleft, so it stays free downstream. If
-   someone tries to sell you this exact software, the license is on your side: demand
-   the source, take it, and run.
-5. **Hosted is a convenience, not a leash.** A public instance exists so nobody is
-   *forced* to install anything - but you can always clone this repository and run the
-   entire application locally, offline, forever. The hosted copy holds nothing hostage:
-   no accounts, no quotas, no telemetry. See [Deploying](#deploying-vercel-or-anywhere-static)
-   to stand up your own copy in one command.
-
-If you were about to pay $5/month - or $10 per image - to make your photos look like
-paintings: don't. Every algorithm the sellers hide behind a checkout button is in this
-repository, named, documented, and free. Clone it. Read it. Keep your money and keep
-your photos.
+Let's be completely honest: My frontend UI/UX skills are virtually non-existent. That is why
+this application relies **100% on [shadcn/ui](https://ui.shadcn.com/).** I didn't write custom
+CSS or invent layout hacks - I took shadcn's brilliant, clean primitives, bolted them onto
+the WebAssembly engine, and got out of the way. It is fast, functional, and clean **because
+of shadcn, not me.** Credit where it is due: the physics is mine, the polish is theirs.
 
 ---
 
-## How it works - mathematics
+## Core Rendering Engine Sepcifications
 
-The pipeline runs in this order, entirely inside a Web Worker hosting the WASM module:
+Every visual effect below is a deterministic, physics- or optics-based algorithm running on
+*your* CPU inside a Web Worker. No preset filters. No inference. These are the exact
+pipeline stages implemented in the engine today.
 
-```
-[INPUT] RGBA input
+### Laminar Flow Fields (Structure Tensor)
 
-[1] Kuwahara filter          - painterly foundation (paint splotches)
-[2] k-means quantization     - limited physical pigment simulation
-[3] Flow-guided strokes      - LIC along the structure tensor: splotches
-                               stretch into strokes that bend with contours
-[4] Saturation & contrast    - oil-paint vibrance
-[5] Heightmap synthesis      - Sobel ridges ^1.4 + bristle grooves
-                               + procedural plain-weave canvas
-[6] Blinn-Phong shading      - impasto relief with a movable light source
-[7] Lanczos3 resampling      - mathematical upscaling to 2x/4x
-[8] Unsharp mask             - final output crispness
+Painter drags the brush *along* form, never across it. I recover that flow analytically.
+From the image gradients $g_x, g_y$ (Sobel) I assemble the **structure tensor**, the outer
+product of the gradient smoothed by a Gaussian $G_\sigma$:
 
-[OUTPUT] RGBA output
-```
+$$
+J = G_\sigma * \begin{bmatrix} g_x^2 & g_x g_y \\ g_x g_y & g_y^2 \end{bmatrix}
+$$
 
-### 1. Kuwahara filter
+The blur is what makes the field *laminar* - it averages away pixel noise and leaves a
+smooth, coherent orientation field. The **minor eigenvector** of this symmetric $2\times2$
+matrix (solved in closed form, no `atan2`) points along the direction of least change -
+i.e. along edges and contours - while the eigenvalue spread
 
-For each pixel, four overlapping square sectors (NW, NE, SW, SE) of radius *r* are
-examined. Each sector's mean color and luminance variance come from *anchored
-sliding-window box sums* (the streaming cousin of summed-area tables): one separable
-pass computes every window sum in O(1) amortized per pixel, and the four sectors of a
-pixel are that window sampled at four offsets:
+$$
+A = \frac{\lambda_1 - \lambda_2}{\lambda_1 + \lambda_2}
+$$
 
-```math
-running \sum:  add row[x], subtract row[x-r-1]   (then same vertically)
-{\sigma}^2 = E\left[X^2\right] − {\left(E\left[X\right]\right)}^2
-```
+gives an **anisotropy** measure that is ~1 along strong structure and ~0 in flat regions.
+This single vector field guides every stroke in the engine, so brushwork naturally follows
+anatomy and geometry - hair flows with the head, horizon runs flat, iris orbits the
+pupil - instead of marching in a dumb uniform direction.
 
-Classic filter picks the sector with minimum variance. I implement *generalized*
-weighted form: every sector contributes with weight $\`w = 1 / (1 + {\sigma}^2)^q\`$, where the
-exponent `q` is **Edge Preservation** slider.
+### Dynamic Stroke-Based Rendering (SBR) & Palette Knife
 
-High `q` collapses to the classic minimum-variance choice (hard, sharp stroke boundaries);
-low `q` blends sectors softly.
+Old flat **LIC filter has been retired and deprecated.** It smeared pixels; it never
+*painted*. In its place is a true stroke-based renderer (Haeberli 1990, Hertzmann 1998)
+that rebuilds the image from discrete, overlapping smears of pigment, traced as paths along
+the flow field over **three multiscale layers**:
 
-This turns homogeneous regions into flat *paint splotches* while refusing to average
-across structural edges - the mathematical core of the painted look.
+- **Undercoat** - coarse, broad slabs that block in the massing and the value structure,
+  the way an oil painter lays a dead-colour underpainting.
+- **Form** - mid-scale strokes that establish planes and transitions.
+- **Detail** - fine strokes that fire *only where the canvas still disagrees with the
+  target* (mean-luma error integrated over the stroke footprint). Faces regain detail;
+  skies stay broad. That is the decision a painter makes with their eyes, expressed as an
+  error integral.
 
-Total cost is O(W x H) regardless of brush radius, which is why the brush-size slider stays
-interactive up to 30 px.
+**Dynamic Stroke Width.** Real brush is not a constant-width rubber stamp. Width varies
+along the path from two independent physical effects:
 
-### 2. Color quantization
+- **Curvature pressure** - in sharp turn the artist bears down and the bristles splay, so
+  local width scales up with path curvature $\kappa$.
+- **Natural taper** - each stroke is thin on the **landing** ($u \approx 0$) as the brush
+  touches down, swells through the body, and thins again at **lift-off** ($u \approx 1$)
+  as it leaves the canvas, where $u \in [0,1]$ is normalized arc length along the stroke.
 
-Real painters mix a finite palette. I simulate this by clustering all image colors into
-*k* centroids in RGB space (k = the **Pigment Count** slider), using deterministic
-luminance-stratified initialization followed by Lloyd iterations on a subsampled pixel
-set, then snapping every pixel to its nearest centroid. Deterministic seeding means the
-same image + same k always yields the same palette - reproducibility over vibes.
+### Subtractive Pigment Mixing (Kubelka–Munk Model)
 
-### 3. Flow-guided brush strokes (structure tensor + LIC)
+This is how I **completely eradicated the digital gray mud.** Naive editors blend two
+colors by averaging their RGB channels - but that is additive-light math applied to
+*paint*, and it is physically wrong. Average blue and yellow in RGB and you get a dead,
+dirty gray. Real pigment is **subtractive**: each layer absorbs and scatters light, and
+mixing blue and yellow yields a deep, vibrant **green**.
 
-A painter drags the brush *along* contours. The smoothed **structure tensor**
-(Sobel gradient outer product, Gaussian-blurred) encodes local orientation; its minor
-eigenvector - computed in closed form from the 2×2 symmetric eigensystem, no `atan2` -
-points along image flow, and the eigenvalue spread gives an anisotropy measure that is
-zero in flat regions. Each pixel's color is then advected up to *L* steps both ways along
-the field (**line integral convolution**, Cabral & Leedom 1993), re-reading the field at
-every step so strokes bend around curves. Running this *after* quantization smears hard
-pigment boundaries into directional, brushy transitions.
+I implement the physical **Kubelka-Munk** two-constant model. Every color is converted
+from its reflectance $R$ into its **absorption-to-scattering ratio** $K/S$:
 
-### 3b. Palette-knife mode (stroke-based rendering)
+$$
+\frac{K}{S} = \frac{(1-R)^2}{2R}
+$$
 
-Alternative renderer doesn't filter pixels - it **paints**. Classic stroke-based
-rendering (Haeberli 1990, Hertzmann 1998): the image is rebuilt from discrete,
-overlapping smears of flat paint, one load of pigment per knife motion:
+Pigments are then mixed **linearly by concentration** in $K/S$ space - the domain where
+paint actually superposes - and the blend is inverted back to reflectance:
 
-- **Placement**: jittered grid, coarse-to-fine layers. Finer layers fire only where the
-  canvas still disagrees with the target image (mean luma error over the smear
-  footprint) - faces regain detail while skies stay broad slabs, which is the decision
-  a painter makes with their eyes, expressed as an error integral.
-- **Orientation**: a sign-aligned average of the structure-tensor flow per smear; in
-  flat regions the knife follows the light azimuth with hand wobble.
-- **Smearing**: coverage runs in hash-jittered lanes parallel to the drag and fades
-  toward lift-off, so the paint underneath shows through in streaks - the visual
-  signature of a metal blade running out of pigment.
-- **Relief**: every smear writes a tilted slab (thin at blade-down, thick at lift-off,
-  a bead squeezed over the long edges) into the height field, *overwriting* what was
-  below. Wet paint covers wet paint; the Blinn-Phong pass then lights real layered
-  strokes.
+$$
+R = 1 + \frac{K}{S} - \sqrt{\left(\frac{K}{S}\right)^2 + 2\,\frac{K}{S}}
+$$
 
-All randomness is an integer hash of grid indices - the same photo and sliders always
-produce the same painting.
+Payoff is organic, optically-correct paint: mixtures stay saturated, complements
+deepen instead of graying out, and greens glow the way they do on a real palette.
 
-### 4. Saturation & contrast
+### Dry-Brush Skipping & Topography Interaction
 
-Plain per-pixel linear algebra around the Rec. 601 luma axis:
-$\`out = luma + (in − luma) \cdot s\`$, then $\`out = (out − 0.5) \cdot c + 0.5\`$.
+Dry brush dragged over textured canvas only touches the **peaks** of the weave; the
+valleys stay bare. I simulate this literally. As a stroke advances it samples the local
+relief height against **blurred baseline elevation (`hbase`)** - the low-frequency lay of
+the paint already down - plus the procedural **canvas tooth**. Where the surface sits below
+that baseline, deposition is cut off: the paint **skips** over the valleys and lands only on
+the raised tooth. At high **dryness** settings this produces the characteristic broken,
+scumbled, grainy drag of a starved brush; at low dryness the stroke floods and fills.
 
-### 5–6. Impasto: heightmap synthesis + Blinn-Phong illumination
+### Viscous Paint Displacement (Squeezed Knife Profile)
 
-Oil paint is three-dimensional; light rakes across ridges of paint. The height field is
-assembled from three mathematically distinct layers:
+Palette knife does not lay a flat ribbon of paint - the steel blade **presses the pigment
+outward.** My knife cross-section is modeled on that physical squeeze: the **center
+hollows** where the blade bears down, and the displaced paint piles into **twin raised beads
+peaking near the lateral margins** at normalized cross-stroke coordinate $vn \approx 0.85$.
+Layered with **hash-driven dynamic blade tilting** - the blade's attack angle jittered
+per-stroke by an integer hash - every smear writes a distinct, asymmetric slab of relief
+into the height field, so light later rakes across genuine tool marks rather than a uniform
+bump.
 
-- **Ridges** - Sobel gradient magnitude of the painted image, raised to the power 1.4
-  (bold stroke edges keep their paint bead, faint pigment-band outlines fade), then
-  box-blurred so ridges have flanks for light to catch.
-- **Bristle grooves** - a sine phase running *across* the local stroke direction,
-  phase-jittered by integer hash noise so individual hairs stay irregular, gated by
-  anisotropy^2 so grooves exist only along genuine strokes.
-- **Canvas weave** - procedural plain-weave fabric: warp/weft threads alternate
-  over/under on a checkerboard, each thread crowned by |sin|, thickness jittered per
-  cell - attenuated wherever paint is thick. Heavy impasto hides the canvas; thin
-  washes reveal it, exactly like a real painting.
-- Surface normals are derived from the heightmap gradient, scaled by the **Impasto
-  Depth** slider: $\`N = normalize(\frac{-\delta h}{\delta x} \cdot d, \frac{-\delta h}{\delta y} \cdot d, 1)\`$.
-- **Blinn-Phong** model lights every pixel:
-  $\`L = ambient + diffuse \cdot max(N \ cdot \hat{L}, 0) + specular \ cdot max(N \cdot \hat{H}, 0)^{shininess}\`$
-  where the light direction $\`\hat{L}\`$ is computed from the **Elevation** and **Azimuth**
-  sliders, and $\`\hat{H}\`$ is the half-vector. Drag the azimuth and watch the paint ridges cast
-  shadows from the other side - that is a real illumination model, not a filter preset.
+### Wet-on-Wet Smudging & Brush Contamination
 
-### 7. Lanczos3 resampling
+Paint is wet, and a brush is a **finite reservoir**. Both the SBR brush and the palette
+knife **drag upstream canvas color** into the stroke: as the tool moves it picks up whatever
+pigment it crosses, contaminating its virtual load, so the color it deposits drifts toward
+the colors it has already smeared through - real wet-on-wet blending, not a decal.
 
-Upscaling uses the Lanczos kernel with a = 3:
+Simultaneously the brush's **original charge depletes geometrically** along the stroke. The
+deposit opacity of the loaded pigment falls off with normalized stroke progress:
 
-```math
-L(x) = sinc(x) \cdot sinc(x/3)   for |x| < 3,   0 otherwise
-sinc(x) = \frac{sin(\pi x)}{\pi x}
-```
+$$
+\text{deposit opacity} = 0.55 + 0.45 \cdot e^{-2\,\cdot\,\text{progress}}
+$$
 
-Implemented as two separable passes (horizontal, then vertical) with per-destination
-precomputed kernel weights. Lanczos3 is the classical gold standard for image resampling -
-the same mathematics your photo editor uses when you pick "best quality".
+so a stroke lays down thick, opaque pigment where it lands and fades toward the underlying
+wet paint as it runs out - the exact signature of a brush unloading across the canvas.
 
-### 8. Unsharp mask
+### Edge Fringing (Pigment Accumulation)
 
-$\`out = in + amount \cdot (in − gaussian(in))\`$ - the digital descendant of a darkroom
-technique that predates the transistor.
+When paint is pushed by a brush, solid particles pile up at the **edges** of the stroke,
+inside the anti-aliased margin. I reproduce this optically at the stroke boundary, over the
+cross-stroke band $vn \in [0.72, 0.93]$, with a localized, non-linear adjustment driven by a
+fringe factor $fr$:
 
-## Building
+$$
+L \rightarrow L \cdot (1 - 0.28\,fr), \qquad C \rightarrow C \cdot (1 + 0.35\,fr)
+$$
+
+Luminance is attenuated and chroma is boosted just inside the margin, so stroke edges gain a
+darker, richer, more saturated rim exactly where a real oil edge accumulates pigment -
+giving every smear a physical, hand-laid border.
+
+### Anisotropic Specular Varnish Shading
+
+Standard circular Blinn–Phong highlights make paint look like plastic. Varnish over
+brushwork does not glint in dots - it glints in **streaks**, stretched perpendicular to the
+bristle grooves. So I light the varnish coat with an anisotropic **Kajiya–Kay**
+strand-reflection model. Given the local groove tangent $T$ and the half-vector $H$, the
+specular term uses the *sine* of their angle rather than the surface normal:
+
+$$
+I_{spec} \propto \sin(T, H)^{n} = \left(1 - (T \cdot H)^2\right)^{n/2}
+$$
+
+Because the response depends only on the component of $H$ perpendicular to the groove
+direction, the highlight collapses into an **elongated glint running strictly across the
+brush grooves.** Rotate the light source and watch the specular streaks sweep along the
+bristle direction like real varnish catching a raking studio light - anisotropic, physical,
+and alive.
+
+---
+
+## Performance and Architecture
+
+Entire engine is **freestanding C99** - no libc, no emscripten, no runtime of any kind.
+It is compiled directly with `clang` and linked with `wasm-ld` down to a single
+**~50 KB WASM binary** (`49,729` bytes, exactly) with no imports beyond a linear memory.
+That is the whole "backend": a payload smaller than a single icon on most SaaS landing
+pages, doing all of the work above.
+
+- **Deterministic bump allocator.** There is no `malloc`, no garbage collector, no heap
+  fragmentation. The engine owns one linear-memory arena and hands out scratch buffers with
+  a monotonic bump pointer that resets per frame. Allocation is a pointer add; freeing is
+  free. This is what makes every render bit-for-bit reproducible.
+- **Hardware-native math.** All the transcendental work - the exponential falloffs, the
+  sine grooves, the square roots in the Kubelka–Munk inversion and the eigensolve - runs
+  through compact polynomial approximations emitted straight to WebAssembly float
+  instructions. No math library is linked; the numerics are in the repository, in
+  `mathf.c`, for you to read.
+- **No hidden dependencies.** No WASI, no JS shims doing real work, no network. The C
+  sources in `engine/` (`pipeline.c`, `tensor.c`, `flow.c`, `sbr.c`, `knife.c`,
+  `impasto.c`, `color.c`, `kuwahara.c`, `quantize.c`, `lanczos.c`, `field.c`, `memory.c`,
+  `mathf.c`) are the complete engine.
+
+---
+
+## Build and Deploy
 
 ```sh
 npm install
@@ -224,30 +233,32 @@ npm run build:wasm   # requires clang + wasm-ld (package 'lld' on Fedora)
 npm run dev
 ```
 
-Compiled `public/wasm/prometheus.wasm` artifact is committed, so `npm run dev` works
-without a C toolchain; `build:wasm` is only needed when you modify the C sources in
-`engine/`.
+Compiled `public/wasm/prometheus.wasm` artifact **is committed to the repository.**
+This means developers do **not** need a C toolchain to run the frontend locally or to deploy
+it - `npm install && npm run dev` works out of the box.
 
-## Deploying (Vercel, or anywhere static)
+You only need `clang` + `wasm-ld` if you intend to modify the C sources in `engine/` and rebuild
+the binary yourself.
 
-Repository is deploy-ready: `vercel.json` configures the build command, output
-directory and cache headers, and because the WASM artifact is committed, **the deploy
-machine needs no C toolchain** - Vercel just runs `npm run build` and ships static files.
+### Deploying (Vercel, or anywhere static)
+
+The repository is deploy-ready: `vercel.json` configures the build command, output directory
+and cache headers. Because the WASM artifact is committed, **the deploy machine needs no C
+toolchain** - Vercel just runs `npm run build` and ships static files.
 
 ```sh
-npx vercel        # from the repo root; that's the whole procedure
+npx vercel        # from the repo root; that is the whole procedure
 ```
 
-Any other static host (Netlify, GitHub Pages, an nginx box, a USB stick) works the same
-way: `npm run build`, serve `dist/`. There is no server-side component whatsoever - the
-"backend" is your visitors' own CPUs.
+Any other static host (Netlify, GitHub Pages, nginx box, USB stick) works the same way:
+`npm run build`, then serve `dist/`. There is no server-side component whatsoever - the
+"backend" is your visitors' own CPUs. A hosted instance is a convenience, not a leash: no
+accounts, no quotas, no telemetry, nothing to upsell. If it ever disappears, nothing is
+lost; every visitor already had the entire engine in their browser cache.
 
-To be absolutely clear about the philosophy: hosted instance exists so that people
-don't *have* to set anything up locally. You still **can** - clone it, build it, run it
-offline forever. The hosted copy is a convenience, not a leash: it has no accounts, no
-quotas, no telemetry, and nothing to upsell. If it ever disappears, nothing is lost;
-every visitor already had the entire engine in their browser cache.
+### License
 
-## License
-
-GPL-2.0. Take it, ship it, but keep it open. That's the point.
+**GPL-2.0, copyleft** (see [LICENSE](LICENSE)). No accounts, no watermarks, no "3 free
+credits." Take it, ship it, learn from it - but keep it open. If someone tries to sell you
+this exact software, the license is on your side: demand the source, take it, and run. Free
+means free, downstream and forever. That's the point.
