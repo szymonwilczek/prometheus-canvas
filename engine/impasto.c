@@ -1,5 +1,7 @@
 /*
- * Physical paint relief: heightmap synthesis + Blinn-Phong.
+ * Physical paint relief:
+ * Heightmap synthesis, stress-fracture craquelure, and layered optical shading
+ * model.
  *
  * Oil paint is three-dimensional.
  * Height field is assembled from three mathematically distinct layers:
@@ -19,6 +21,8 @@
  *    Weave is attenuated where the paint ridge is thick - heavy impasto hides
  *    the canvas, thin washes reveal it, exactly like a real painting.
  *
+ * On top of the relief three physical aging/optics stages operate:
+ *
  * CRAQUELURE (pc_craquelure) - drying contraction of the paint film stores
  * tensile stress sigma ~ E * lap(height), weighted by film thickness.
  * Crack tips nucleate where stress peaks and propagate perpendicular to
@@ -33,11 +37,12 @@
  * evaluated as 5-tap kernel, and thin high-gradient stroke edges gain warm
  * transmission glow (light bleeding through the paint rim).
  *
- * Combined field is lit per pixel by Blinn-Phong with the light direction from
- * the elevation/azimuth in the pc_shade state.
- * Diffuse is normalized against a flat surface, and the specular term is offset
- * by the flat-surface glint, so zero-relief pixel keeps its exact original
- * color at any light angle.
+ * TWO-LAYER VARNISH - smooth refractive film (its own brush-stroke
+ * micro-relief) sits above the paint: sharp Fresnel-weighted first-surface
+ * glint reflects off the varnish, while the light that enters is bent by
+ * Snell's law before it shades the paint grooves underneath.
+ * Gloss map derived from pigment density and film thickness modulates the
+ * paint-layer lobe (thick/dark passages dry matte, oil-rich glazes dry glossy).
  */
 #include "pc.h"
 
@@ -280,7 +285,7 @@ void pc_craquelure(f32 *height, f32 *crack, i32 w, i32 h, f32 tension,
 void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
                 const pc_shade *sp) {
   pc_shade local = *sp;
-  if (local.depth <= 0.0f && weave <= 0.0f)
+  if (local.depth <= 0.0f && weave <= 0.0f && local.varnish <= 0.0f)
     return;
 
   usize n = (usize)w * (usize)h;
@@ -385,6 +390,24 @@ void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 weave_scale) {
 }
 
 /*
+ * Snell refraction of incident unit vector (pointing toward the surface) about
+ * unit normal N, eta = n_outside / n_inside.
+ * Entering the denser medium k stays positive;
+ * the clamp only guards float noise.
+ */
+static void refract_dir(f32 ix, f32 iy, f32 iz, f32 nx, f32 ny, f32 nz, f32 eta,
+                        f32 *tx, f32 *ty, f32 *tz) {
+  f32 ci = -(ix * nx + iy * ny + iz * nz);
+  f32 k = 1.0f - eta * eta * (1.0f - ci * ci);
+  if (k < 0.0f)
+    k = 0.0f;
+  f32 ct = pc_sqrtf(k);
+  *tx = eta * ix + (eta * ci - ct) * nx;
+  *ty = eta * iy + (eta * ci - ct) * ny;
+  *tz = eta * iz + (eta * ci - ct) * nz;
+}
+
+/*
  * Jensen's dipole diffuse reflectance profile:
  *   Rd(r) = alpha'/(4 pi) * [ zr (1 + str*dr) e^(-str*dr) / dr^3
  *                           + zv (1 + str*dv) e^(-str*dv) / dv^3 ]
@@ -401,19 +424,25 @@ static f32 dipole_rd(f32 r, f32 alpha, f32 str, f32 zr, f32 zv) {
 }
 
 /*
- * Relief shading of an RGBA image against an arbitrary height field,
- * driven by the pc_shade state.
+ * Layered relief shading of an RGBA image against an arbitrary height field.
  *
- * Pass A rasterizes per-pixel diffuse irradiance and specular energy:
- * Blinn-Phong over crisp-remapped central-difference normals, blended
- * toward a Kajiya-Kay strand glint across bristle grooves where a stroke
- * tangent field is supplied, cavity-darkened in the crevices, and heavily
- * attenuated inside craquelure V-grooves (light entrapment).
+ * Pass A rasterizes per-pixel irradiance and specular energy:
+ *  - paint normals from crisp-remapped central differences;
+ *  - if a varnish layer is present, its own brush-stroke micro-relief yields
+ *    a per-pixel varnish normal: the Fresnel share F of the light glints off
+ *    that smooth outer surface (sharp isotropic lobe), the (1-F) share is
+ *    bent by Snell's law and shades the paint grooves underneath with the
+ *    refracted light/view vectors, attenuated once more on exit;
+ *  - the paint lobe is modulated by a gloss map: matte where pigment is
+ *    dense/thick, glossy where the oil-rich film is thin and bright, and
+ *    blended toward a Kajiya-Kay strand glint across bristle grooves;
+ *  - craquelure grooves trap light: diffuse and specular are heavily
+ *    attenuated by the local crack depth (cavity of the V-groove).
  *
  * Pass B redistributes the diffuse irradiance with the BSSRDF dipole kernel
  * (subsurface scattering in the binder), adds the warm transmission glow at
  * thin stroke edges, settles dirt into old cracks, and composes the result.
- * Diffuse is normalized against a flat surface and the specular term is
+ * Diffuse is normalized against a flat surface and every specular term is
  * offset by its flat-surface value, so a zero-relief pixel keeps its exact
  * original color at any light angle.
  */
@@ -460,6 +489,7 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       sss_on = 0;
   }
 
+  /* light and air-side half vector */
   f32 ce = pc_cosf(sp->elev);
   f32 lx = ce * pc_cosf(sp->azim);
   f32 ly = -ce * pc_sinf(sp->azim);
@@ -471,13 +501,43 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
   hy /= hlen;
   hz /= hlen;
 
+  /* varnish layer constants */
+  i32 varnish_on = sp->varnish > 0.0f;
+  f32 nv_ior = pc_clampf(sp->varnish_ior, 1.01f, 2.5f);
+  f32 eta = 1.0f / nv_ior;
+  f32 f0 = (nv_ior - 1.0f) / (nv_ior + 1.0f);
+  f0 *= f0;
+  f32 v_amp = sp->varnish * 0.5f;
+  const f32 VFREQ = 0.13f; /* varnish brush-stroke pitch ~48 px */
+  const f32 VFREQ2 = 0.031f;
+  i32 sv_exp = pc_mini(sp->shininess * 4, 400);
+
+  /* flat-surface reference (refracted when varnish is on)
+   * so zero relief stays color-neutral */
+  f32 flx = lx, fly = ly, flz = lz;
+  if (varnish_on) {
+    f32 tx, ty, tz;
+    refract_dir(-lx, -ly, -lz, 0.0f, 0.0f, 1.0f, eta, &tx, &ty, &tz);
+    flx = -tx;
+    fly = -ty;
+    flz = -tz;
+  }
+  f32 fhx = flx, fhy = fly, fhz = flz + 1.0f;
+  f32 fhlen = pc_sqrtf(fhx * fhx + fhy * fhy + fhz * fhz);
+  fhz /= fhlen;
+
   const f32 AMBIENT = 0.30f, DIFFUSE = 0.70f;
-  f32 flat = AMBIENT + DIFFUSE * pc_maxf(lz, 0.0f);
+  f32 flat = AMBIENT + DIFFUSE * pc_maxf(flz, 0.0f);
   f32 inv_flat = flat > 1e-6f ? 1.0f / flat : 1.0f;
-  f32 flat_pow = pow_int(pc_maxf(hz, 0.0f), sp->shininess);
+  i32 shin_lo = pc_maxi(2, sp->shininess >> 2); /* matte broadened lobe */
+  f32 flat_hi = pow_int(pc_maxf(fhz, 0.0f), sp->shininess);
+  f32 flat_lo = pow_int(pc_maxf(fhz, 0.0f), shin_lo);
+  f32 flat_v = varnish_on ? pow_int(pc_maxf(hz, 0.0f), sv_exp) : 0.0f;
   f32 aniso = pc_clampf(sp->aniso, 0.0f, 1.0f);
   i32 kk_exp = pc_maxi(1, sp->shininess >> 1); /* sin^n via (sin^2)^(n/2) */
+  f32 gloss_dep = pc_clampf(sp->gloss_dep, 0.0f, 1.0f);
 
+  /* pass A: irradiance + specular fields */
   for (i32 y = 0; y < h; y++) {
     i32 ym = pc_maxi(y - 1, 0), yp = pc_mini(y + 1, h - 1);
     for (i32 x = 0; x < w; x++) {
@@ -511,31 +571,104 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       ny *= inv_len;
       nz *= inv_len;
 
-      f32 ndl = pc_maxf(nx * lx + ny * ly + nz * lz, 0.0f);
-      f32 ndh = pc_maxf(nx * hx + ny * hy + nz * hz, 0.0f);
+      usize i = row + (usize)x;
+
+      /* effective light/half vectors for the paint layer
+       * + the varnish first-surface glint */
+      f32 plx = lx, ply = ly, plz = lz;
+      f32 phx = hx, phy = hy, phz = hz;
+      f32 fres = 0.0f, spec_v = 0.0f;
+      if (varnish_on) {
+        /* varnish brush-stroke micro-relief, analytic derivatives */
+        f32 wob = 1.9f * pc_sinf((f32)x * 0.017f);
+        f32 ph = (f32)y * VFREQ + wob;
+        f32 cph = pc_cosf(ph);
+        f32 ph2 = ((f32)x + (f32)y) * VFREQ2 + 0.7f;
+        f32 cph2 = pc_cosf(ph2);
+        f32 dvdx = v_amp * (cph * 1.9f * 0.017f * pc_cosf((f32)x * 0.017f) +
+                            0.35f * VFREQ2 * cph2);
+        f32 dvdy = v_amp * (VFREQ * cph + 0.35f * VFREQ2 * cph2);
+        f32 vnx = -dvdx, vny = -dvdy, vnz = 1.0f;
+        f32 vinv = 1.0f / pc_sqrtf(vnx * vnx + vny * vny + 1.0f);
+        vnx *= vinv;
+        vny *= vinv;
+        vnz *= vinv;
+
+        f32 ci = pc_maxf(vnx * lx + vny * ly + vnz * lz, 0.0f);
+        f32 om = 1.0f - ci;
+        f32 om2 = om * om;
+        fres = f0 + (1.0f - f0) * om2 * om2 * om; /* Schlick */
+
+        /* first surface reflection:
+         * sharp isotropic glint off the smooth outer varnish,
+         * relative to its flat value */
+        f32 ndhv = pc_maxf(vnx * hx + vny * hy + vnz * hz, 0.0f);
+        spec_v = fres * (pow_int(ndhv, sv_exp) - flat_v);
+
+        /* transmitted share is bent by Snell's law before it reaches the paint:
+         * refracted light, refracted view, new half vector */
+        f32 tx, ty, tz;
+        refract_dir(-lx, -ly, -lz, vnx, vny, vnz, eta, &tx, &ty, &tz);
+        plx = -tx;
+        ply = -ty;
+        plz = -tz;
+        refract_dir(0.0f, 0.0f, -1.0f, vnx, vny, vnz, eta, &tx, &ty, &tz);
+        f32 pvx = -tx, pvy = -ty, pvz = -tz;
+        phx = plx + pvx;
+        phy = ply + pvy;
+        phz = plz + pvz;
+        f32 philen = pc_sqrtf(phx * phx + phy * phy + phz * phz);
+        if (philen > 1e-6f) {
+          phx /= philen;
+          phy /= philen;
+          phz /= philen;
+        }
+      }
+
+      f32 ndl = pc_maxf(nx * plx + ny * ply + nz * plz, 0.0f);
+      f32 ndh = pc_maxf(nx * phx + ny * phy + nz * phz, 0.0f);
 
       f32 E = AMBIENT + DIFFUSE * ndl;
 
-      usize i = row + (usize)x;
       if (blur) {
         f32 cav = pc_maxf(0.0f, blur[i] - height[i]);
         E *= 1.0f - pc_minf(0.6f, sp->cavity * cav * 8.0f);
       }
 
-      /* specular relative to flat:
-       * ridges glint, flats stay unchanged.
-       * Slightly warm tint - linseed varnish is not neutral mirror */
-      f32 s_spec = pow_int(ndh, sp->shininess) - flat_pow;
+      /* gloss map:
+       * pigment-dense / thick passages dry matte,
+       * thin oil-rich films dry glossy */
+      f32 gloss = 1.0f;
+      if (gloss_dep > 0.0f) {
+        f32 dark = 1.0f - pc_luma(img[i * 4], img[i * 4 + 1], img[i * 4 + 2]) *
+                              (1.0f / 255.0f);
+        gloss = pc_clampf(
+            1.0f - gloss_dep *
+                       (0.6f * dark + 0.4f * pc_minf(1.0f, height[i] * 2.5f)),
+            0.05f, 1.0f);
+      }
+
+      /* paint-layer lobe:
+       * matte pixels get the broadened low exponent,
+       * glossy pixels the full one, both relative to flat */
+      f32 p_hi = pow_int(ndh, sp->shininess) - flat_hi;
+      f32 p_lo = pow_int(ndh, shin_lo) - flat_lo;
+      f32 s_spec = p_lo + (p_hi - p_lo) * gloss;
       if (sp->tfx && aniso > 0.0f) {
         /* Kajiya-Kay strand glint stretched across the groove:
          * T lies in the canvas plane along the stroke;
          * streak peaks where H is perpendicular to it.
          * slope-gated so only actual paint relief carries anisotropic sheen */
-        f32 th = sp->tfx[i] * hx + sp->tfy[i] * hy;
+        f32 th = sp->tfx[i] * phx + sp->tfy[i] * phy;
         f32 sina2 = pc_maxf(0.0f, 1.0f - th * th);
         f32 kk = pow_int(sina2, kk_exp);
         f32 gate = pc_minf(1.0f, gm * 20.0f);
         s_spec += aniso * (gate * kk - s_spec);
+      }
+      s_spec *= gloss;
+      if (varnish_on) {
+        f32 tr = 1.0f - fres; /* enter and exit through the boundary */
+        s_spec *= tr * tr;
       }
 
       /* light entrapment inside craquelure V-grooves:
@@ -544,10 +677,11 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
         f32 c = pc_minf(1.0f, sp->crack[i] * 6.0f);
         E *= 1.0f - 0.80f * c;
         s_spec *= 1.0f - c;
+        spec_v *= 1.0f - c;
       }
 
       irr[i] = E;
-      spc[i] = sp->specular * s_spec;
+      spc[i] = sp->specular * (s_spec + spec_v);
       if (edge)
         edge[i] = pc_minf(1.0f, gm * 10.0f);
     }

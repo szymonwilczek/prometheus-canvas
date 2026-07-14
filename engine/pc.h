@@ -90,8 +90,8 @@ void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
 /*
  * Full physical shading state for pc_shade_height.
  * Optional pointers may be 0;
- * each feature collapses to no-op at its neutral value
- * (aniso 0, sss_scatter 0, crack 0).
+ * each feature collapses to a no-op at its neutral value
+ * (aniso 0, sss_scatter 0, varnish 0, crack 0).
  */
 typedef struct {
   f32 depth;      /* heightmap gradient multiplier for the normals */
@@ -107,6 +107,11 @@ typedef struct {
   /* BSSRDF dipole subsurface scattering of the oil binder */
   f32 sss_scatter; /* reduced scattering coefficient sigma_s', px^-1 */
   f32 sss_absorb;  /* absorption coefficient sigma_a, px^-1 */
+
+  /* two-layer refractive varnish */
+  f32 varnish;     /* varnish layer thickness (0 disables the layer) */
+  f32 varnish_ior; /* refractive index of the varnish, ~1.5 */
+  f32 gloss_dep;   /* gloss-map dependency on pigment density/thickness */
 
   /* stress-fracture craquelure */
   const f32 *crack; /* V-groove depth per pixel from pc_craquelure, or 0 */
