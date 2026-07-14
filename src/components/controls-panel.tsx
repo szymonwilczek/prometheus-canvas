@@ -415,6 +415,128 @@ export function ControlsPanel({
 
       <Card size="sm">
         <CardHeader>
+          <CardTitle className="text-sm">Varnish -- refraction</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ParamSlider
+            label="Layer thickness (0 = off)"
+            value={params.varnishThickness}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("varnishThickness", v)}
+          />
+          <ParamSlider
+            label="Refractive index (n)"
+            value={params.varnishIor}
+            min={1}
+            max={1.8}
+            step={0.01}
+            onChange={(v) => set("varnishIor", v)}
+          />
+          <ParamSlider
+            label="Gloss map dependency"
+            value={params.glossDependency}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("glossDependency", v)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">Subsurface -- BSSRDF dipole</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ParamSlider
+            label="Scattering σs′ (0 = off)"
+            value={params.sssScatter}
+            min={0}
+            max={2}
+            step={0.05}
+            onChange={(v) => set("sssScatter", v)}
+          />
+          <ParamSlider
+            label="Absorption σa"
+            value={params.sssAbsorb}
+            min={0.01}
+            max={1}
+            step={0.01}
+            onChange={(v) => set("sssAbsorb", v)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">Craquelure -- fracture</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ParamSlider
+            label="Drying tension (0 = off)"
+            value={params.crackTension}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("crackTension", v)}
+          />
+          <ParamSlider
+            label="V-groove depth"
+            value={params.crackDepth}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("crackDepth", v)}
+          />
+          <ParamSlider
+            label="Age / dirt in cracks"
+            value={params.crackAge}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("crackAge", v)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">
+            Canvas stretch -- elasticity
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ParamSlider
+            label="Tension force (0 = off)"
+            value={params.warpTension}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("warpTension", v)}
+          />
+          <ParamSlider
+            label="Poisson's ratio (ν)"
+            value={params.warpPoisson}
+            min={0}
+            max={0.45}
+            step={0.01}
+            onChange={(v) => set("warpPoisson", v)}
+          />
+          <ParamSlider
+            label="Corner wrinkle frequency"
+            value={params.wrinkleFrequency}
+            min={1}
+            max={12}
+            step={1}
+            onChange={(v) => set("wrinkleFrequency", v)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
           <CardTitle className="text-sm">Output -- Lanczos3</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
