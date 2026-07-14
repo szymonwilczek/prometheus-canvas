@@ -35,6 +35,8 @@ f32 pc_expf(f32 x);
 f32 pc_logf(f32 x);
 f32 pc_powf(f32 base, f32 e); /* base > 0 */
 
+static inline f32 pc_cosf(f32 x) { return pc_sinf(x + PC_HALFPI); }
+
 /* WASM instructions */
 static inline f32 pc_sqrtf(f32 x) { return __builtin_sqrtf(x); }
 static inline f32 pc_fabsf(f32 x) { return __builtin_fabsf(x); }
@@ -84,15 +86,31 @@ void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
 void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out);
 void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
-void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
-                f32 specular, i32 shininess, f32 bristle, f32 weave,
-                f32 weave_scale, f32 cavity);
+
+/*
+ * Full physical shading state for pc_shade_height.
+ * Optional pointers may be 0;
+ * each feature collapses to no-op at its neutral value (aniso 0).
+ */
+typedef struct {
+  f32 depth;      /* heightmap gradient multiplier for the normals */
+  f32 elev;       /* light elevation, radians */
+  f32 azim;       /* light azimuth, radians */
+  f32 specular;   /* paint-layer specular strength */
+  i32 shininess;  /* Blinn-Phong exponent of the paint layer */
+  f32 cavity;     /* ambient occlusion in paint valleys */
+  const f32 *tfx; /* stroke tangent field for Kajiya-Kay glint, or 0 */
+  const f32 *tfy;
+  f32 aniso; /* isotropic -> strand glint blend */
+} pc_shade;
+
+void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
+                const pc_shade *sp);
 
 /* shared relief helpers (impasto.c) */
 void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 scale);
-void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
-                     f32 elev, f32 azim, f32 specular, i32 shininess,
-                     f32 cavity, const f32 *tfx, const f32 *tfy, f32 aniso);
+void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
+                     const pc_shade *sp);
 
 /* field.c */
 void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);
@@ -101,8 +119,8 @@ void pc_sbr_field(const u8 *img, i32 w, i32 h, f32 *fx, f32 *fy, f32 *aniso,
 
 /* sbr.c */
 void pc_sbr(u8 *img, f32 *height, i32 w, i32 h, i32 size, f32 undercoat,
-            f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim,
-            f32 dry, f32 drag, f32 vib, f32 fringe);
+            f32 form, f32 detail, f32 alignment, f32 bristle, f32 azim, f32 dry,
+            f32 drag, f32 vib, f32 fringe);
 
 /* knife.c */
 void pc_knife(u8 *img, f32 *height, i32 w, i32 h, i32 size, i32 layers,

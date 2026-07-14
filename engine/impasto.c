@@ -20,7 +20,7 @@
  *    the canvas, thin washes reveal it, exactly like a real painting.
  *
  * Combined field is lit per pixel by Blinn-Phong with the light direction from
- * the elevation/azimuth sliders.
+ * the elevation/azimuth in the pc_shade state.
  * Diffuse is normalized against a flat surface, and the specular term is offset
  * by the flat-surface glint, so zero-relief pixel keeps its exact original
  * color at any light angle.
@@ -38,10 +38,10 @@ static f32 pow_int(f32 x, i32 e) {
   return r;
 }
 
-void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
-                f32 specular, i32 shininess, f32 bristle, f32 weave,
-                f32 weave_scale, f32 cavity) {
-  if (depth <= 0.0f && weave <= 0.0f)
+void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
+                const pc_shade *sp) {
+  pc_shade local = *sp;
+  if (local.depth <= 0.0f && weave <= 0.0f)
     return;
 
   usize n = (usize)w * (usize)h;
@@ -113,10 +113,10 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 depth, f32 elev, f32 azim,
 
   /* layer 3: canvas weave, then light the combined field */
   pc_add_weave(height, w, h, weave, weave_scale);
-  pc_shade_height(img, w, h, height,
-                  depth > 0.0f ? depth : 20.0f, /* weave-only mode
-                  still needs normals to have something to bite on */
-                  elev, azim, specular, shininess, cavity, 0, 0, 0.0f);
+  if (local.depth <= 0.0f)
+    local.depth = 20.0f; /* weave-only mode still needs normals
+                          * to have something to bite on */
+  pc_shade_height(img, w, h, height, &local);
 }
 
 /*
@@ -147,7 +147,7 @@ void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 weave_scale) {
 
 /*
  * Blinn-Phong relief shading of an RGBA image against an arbitrary height
- * field.
+ * field, driven by the pc_shade state.
  * Diffuse is normalized against a flat surface and the specular term is offset
  * by the flat-surface glint, so zero-relief pixel keeps its exact original
  * color at any light angle.
@@ -164,20 +164,19 @@ void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 weave_scale) {
  * varnish keeps no phantom sheen.
  * `aniso` sets the blend.
  */
-void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
-                     f32 elev, f32 azim, f32 specular, i32 shininess,
-                     f32 cavity, const f32 *tfx, const f32 *tfy, f32 aniso) {
+void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
+                     const pc_shade *sp) {
   f32 *blur = 0;
-  if (cavity > 0.0f) {
+  if (sp->cavity > 0.0f) {
     blur = (f32 *)pc_alloc((usize)w * (usize)h * 4);
     if (blur)
       pc_box_blur(height, blur, w, h, 3);
   }
 
-  f32 ce = pc_sinf(elev + PC_HALFPI);      /* cos(elev) */
-  f32 lx = ce * pc_sinf(azim + PC_HALFPI); /* cos(azim) * cos(elev) */
-  f32 ly = -ce * pc_sinf(azim);
-  f32 lz = pc_sinf(elev);
+  f32 ce = pc_cosf(sp->elev);
+  f32 lx = ce * pc_cosf(sp->azim);
+  f32 ly = -ce * pc_sinf(sp->azim);
+  f32 lz = pc_sinf(sp->elev);
 
   f32 hx = lx, hy = ly, hz = lz + 1.0f;
   f32 hlen = pc_sqrtf(hx * hx + hy * hy + hz * hz);
@@ -188,9 +187,9 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
   const f32 AMBIENT = 0.30f, DIFFUSE = 0.70f;
   f32 flat = AMBIENT + DIFFUSE * pc_maxf(lz, 0.0f);
   f32 inv_flat = flat > 1e-6f ? 1.0f / flat : 1.0f;
-  f32 flat_pow = pow_int(pc_maxf(hz, 0.0f), shininess);
-  aniso = pc_clampf(aniso, 0.0f, 1.0f);
-  i32 kk_exp = pc_maxi(1, shininess >> 1); /* sin^n via (sin^2)^(n/2) */
+  f32 flat_pow = pow_int(pc_maxf(hz, 0.0f), sp->shininess);
+  f32 aniso = pc_clampf(sp->aniso, 0.0f, 1.0f);
+  i32 kk_exp = pc_maxi(1, sp->shininess >> 1); /* sin^n via (sin^2)^(n/2) */
 
   for (i32 y = 0; y < h; y++) {
     i32 ym = pc_maxi(y - 1, 0), yp = pc_mini(y + 1, h - 1);
@@ -219,7 +218,7 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
         dhy *= crisp;
       }
 
-      f32 nx = -dhx * depth, ny = -dhy * depth, nz = 1.0f;
+      f32 nx = -dhx * sp->depth, ny = -dhy * sp->depth, nz = 1.0f;
       f32 inv_len = 1.0f / pc_sqrtf(nx * nx + ny * ny + 1.0f);
       nx *= inv_len;
       ny *= inv_len;
@@ -233,25 +232,25 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height, f32 depth,
       usize i = row + (usize)x;
       if (blur) {
         f32 cav = pc_maxf(0.0f, blur[i] - height[i]);
-        mult *= 1.0f - pc_minf(0.6f, cavity * cav * 8.0f);
+        mult *= 1.0f - pc_minf(0.6f, sp->cavity * cav * 8.0f);
       }
 
       /* specular relative to flat:
        * ridges glint, flats stay unchanged.
        * Slightly warm tint - linseed varnish is not neutral mirror */
-      f32 s_spec = pow_int(ndh, shininess) - flat_pow;
-      if (tfx && aniso > 0.0f) {
+      f32 s_spec = pow_int(ndh, sp->shininess) - flat_pow;
+      if (sp->tfx && aniso > 0.0f) {
         /* Kajiya-Kay strand glint stretched across the groove:
          * T lies in the canvas plane along the stroke;
          * streak peaks where H is perpendicular to it.
          * slope-gated so only actual paint relief carries anisotropic sheen */
-        f32 th = tfx[i] * hx + tfy[i] * hy;
+        f32 th = sp->tfx[i] * hx + sp->tfy[i] * hy;
         f32 sina2 = pc_maxf(0.0f, 1.0f - th * th);
         f32 kk = pow_int(sina2, kk_exp);
         f32 gate = pc_minf(1.0f, gm * 20.0f);
         s_spec += aniso * (gate * kk - s_spec);
       }
-      f32 spec = 255.0f * specular * s_spec;
+      f32 spec = 255.0f * sp->specular * s_spec;
 
       usize o = i * 4;
       img[o] = pc_clamp255((f32)img[o] * mult + spec);

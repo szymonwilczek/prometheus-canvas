@@ -56,6 +56,18 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
    * all renderers then work with limited physical palette */
   pc_quantize(dst, w, h, pigments);
 
+  pc_shade sp = {
+      .depth = impasto_depth,
+      .elev = light_elev,
+      .azim = light_azim,
+      .specular = specular,
+      .shininess = shininess,
+      .cavity = cavity,
+      .tfx = 0,
+      .tfy = 0,
+      .aniso = anisotropy,
+  };
+
   if (render_mode == 2) {
     /* Multi-scale SBR:
      * image is repainted bottom-to-top from traced vector strokes
@@ -73,9 +85,9 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
     f32 *tfy;
-    const f32 *tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
-    pc_shade_height(dst, w, h, height, impasto_depth, light_elev, light_azim,
-                    specular, shininess, cavity, tfx, tfy, anisotropy);
+    sp.tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
+    sp.tfy = tfy;
+    pc_shade_height(dst, w, h, height, &sp);
     return;
   }
 
@@ -94,9 +106,9 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
     f32 *tfy;
-    const f32 *tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
-    pc_shade_height(dst, w, h, height, impasto_depth, light_elev, light_azim,
-                    specular, shininess, cavity, tfx, tfy, anisotropy);
+    sp.tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
+    sp.tfy = tfy;
+    pc_shade_height(dst, w, h, height, &sp);
     return;
   }
 
@@ -118,8 +130,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
 
   pc_color_adjust(dst, w, h, saturation, contrast);
   pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
-  pc_impasto(dst, w, h, impasto_depth, light_elev, light_azim, specular,
-             shininess, bristle, weave, weave_scale, cavity);
+  sp.aniso = 0.0f; /* legacy path has no stroke tangents */
+  pc_impasto(dst, w, h, bristle, weave, weave_scale, &sp);
 }
 
 /*
