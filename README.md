@@ -3,10 +3,11 @@
 ![overview.png](assets/overview.png)
 
 Upload photo, move few sliders, and watch it become an impasto oil painting with
-physically-mixed pigment, viscous palette-knife relief, and anisotropic varnish glints -
-computed entirely in your browser by freestanding C compiled to WebAssembly. No neural
-network is consulted. No pixel ever leaves your machine. No GPU farm burns electricity on
-your behalf.
+physically-mixed pigment, viscous palette-knife relief, subsurface-scattered binder,
+refractive varnish, drying-stress craquelure, 8-band spectral color under real gallery
+illuminants, and centuries of simulated chemical aging - computed entirely in your browser
+by freestanding C compiled to WebAssembly. No neural network is consulted. No pixel ever
+leaves your machine. No GPU farm burns electricity on your behalf.
 
 ---
 
@@ -51,7 +52,7 @@ of shadcn, not me.** Credit where it is due: the physics is mine, the polish is 
 
 ---
 
-## Core Rendering Engine Sepcifications
+## Core Rendering Engine Specifications
 
 Every visual effect below is a deterministic, physics- or optics-based algorithm running on
 *your* CPU inside a Web Worker. No preset filters. No inference. These are the exact
@@ -201,15 +202,141 @@ brush grooves.** Rotate the light source and watch the specular streaks sweep al
 bristle direction like real varnish catching a raking studio light - anisotropic, physical,
 and alive.
 
+### Subsurface Scattering in the Binder (BSSRDF Dipole)
+
+Linseed oil is not opaque - light enters the paint film, scatters inside the translucent
+binder, and re-emerges some distance away. The engine redistributes diffuse irradiance with
+**Jensen's dipole approximation** of the BSSRDF: a real source at depth $z_r$ below the
+surface and a mirrored virtual source at $z_v$ above it,
+
+$$
+R_d(r) = \frac{\alpha'}{4\pi}\left[ z_r\,(1+\sigma_{tr} d_r)\,\frac{e^{-\sigma_{tr} d_r}}{d_r^3}
+       + z_v\,(1+\sigma_{tr} d_v)\,\frac{e^{-\sigma_{tr} d_v}}{d_v^3} \right]
+$$
+
+with $\alpha'$, $\sigma_{tr}$ derived from the user's reduced scattering and absorption
+coefficients and the internal Fresnel reflectance of the oil (IOR 1.48). Thin,
+high-gradient stroke edges additionally gain a warm **transmission glow** - light bleeding
+through the paint rim, attenuated by the local film thickness. When spectral rendering is
+active, the dipole constants become **per-wavelength-band quantities** (blue is absorbed and
+scattered more strongly inside the binder than red).
+
+### Two-Layer Refractive Varnish
+
+The varnish coat is a genuine second optical layer, not a screen-space gloss overlay. It
+carries its own brush-stroke micro-relief, and at every pixel the **Schlick-Fresnel** share
+of the incident light glints off that smooth outer surface as a sharp isotropic lobe, while
+the transmitted share is **bent by Snell's law** - refracted light and view vectors shade
+the paint grooves underneath, attenuated once more on exit. A **gloss map** derived from
+pigment density and film thickness modulates the paint-layer lobe: thick, pigment-dense
+passages dry matte, thin oil-rich glazes dry glossy - exactly how a real film cures.
+
+### Stress-Fracture Craquelure (Griffith Propagation)
+
+Old paint cracks because the drying film shrinks against a rigid ground. The engine stores
+tensile stress $\sigma \sim E \cdot \nabla^2 h$ weighted by film thickness, nucleates crack
+tips where the normalized stress clears a tension-controlled threshold, and propagates each
+tip **perpendicular to the maximum tensile stress direction** (the dominant eigenvector of
+the local height Hessian), advancing while Griffith's energy release rate
+$G \sim \sigma^2 a$ exceeds the fracture energy. Tips kink with deterministic jitter,
+bifurcate into T-junctions under high stress, and arrest against existing fissures so the
+network knits. Every step carves a narrow Gaussian **V-groove** out of the height field;
+the shader then traps light inside the fissures and, with age, settles dirt into them.
+
+### Elastic Canvas Stretch (Navier-Cauchy)
+
+A canvas stretched over a wooden frame is pinned at discrete tacks; between them the cloth
+sags inward, and the folded corners wrinkle under the diagonal pull. The displacement field
+over the boundary band solves the 2D **Navier-Cauchy elastostatic equation**
+
+$$
+(1-\nu)\,\nabla^2 u + (1+\nu)\,\nabla(\nabla \cdot u) = 0
+$$
+
+with Dirichlet tack-scallop and corner-ripple conditions, relaxed by Gauss-Seidel on a
+coarse grid and applied as an inverse bilinear warp - confined to the outer ~4% of the
+picture, exactly where a real stretcher deforms the cloth, with wrap-around shading where
+the fabric rolls over the bar.
+
+### Spectral Rendering & Metamerism (8-Band Engine)
+
+Three display channels cannot express how a pigment behaves when the light changes: two
+paints that match under daylight drift apart under incandescent light because their
+underlying reflectance **spectra** differ. That is metamerism, and RGB is blind to it. The
+engine therefore carries a continuous spectral power distribution discretized into **8
+wavelength bands over 380-730 nm**:
+
+- **Upsampling** - sRGB reflectance is lifted to a spectrum via **Smits' seven basis
+  spectra** (white/cyan/magenta/yellow/red/green/blue), resampled onto the band centers.
+- **Spectral Kubelka-Munk** - when the spectral engine is on, every wet-on-wet paint mix
+  runs the $K/S$ blend independently in all 8 bands, applied as a bias-cancelled correction
+  over the exact linear mix so repeated mixing cannot drift. Real yellow + blue makes
+  green in the spectrum, not in a lookup table.
+- **Physical illuminants** - the reflected spectrum is multiplied by the SPD of the gallery
+  light source: tabulated **CIE D65**, **CIE A** and **candle light** evaluated
+  analytically from **Planck's law** (2856 K / 1900 K), and a band-averaged **CIE F11**
+  tri-band fluorescent constrained to the exact F11 white point.
+- **Downsampling** - the spectral radiance is integrated against the **CIE 1931 2°
+  color matching functions** (Wyman-Sloan-Shirley analytic fits) back to XYZ and sRGB.
+
+A $3\times3$ anchoring matrix - the inverse of the D65 round trip of the sRGB primaries -
+keeps the daylight path colorimetrically neutral, so what remains under any other
+illuminant is precisely the physical, unadapted **metameric shift**: under candle light
+even the specular glints turn amber, because the first-surface lobe reflects the
+illuminant's own spectrum.
+
+### Multi-Pass Glazing (Velatura Layer Stack)
+
+Old-master color is built from **layers**: an opaque underpainting filtered by thin,
+heavily diluted glazes. Each glaze pass is solved analytically per wavelength band with the
+**finite-thickness Kubelka-Munk two-flux solution**
+
+$$
+a = \frac{S+K}{S}, \quad b = \sqrt{a^2-1}, \qquad
+R = \frac{\sinh(bSd)}{a\sinh(bSd) + b\cosh(bSd)}, \quad
+T = \frac{b}{a\sinh(bSd) + b\cosh(bSd)}
+$$
+
+which in the dilute, scatter-free limit degenerates **exactly to the Beer-Lambert law**
+$T = e^{-Kd}$ - the pure velatura filter. Films are composed over the base with Kubelka's
+layering relation $R_{stack} = R_1 + T_1^2 R_{below} / (1 - R_1 R_{below})$ (the geometric
+series of all internal bounce orders), and the air boundary applies the **Saunderson
+correction** from the glaze medium's refractive index. Film depth follows the local relief -
+paint pools thick in the stroke valleys - and every additional pass deepens saturation the
+way a painter builds tone by repeated glazing.
+
+### Chemical Aging: Linseed Yellowing & Metal-Soap Efflorescence
+
+Oil paintings do not just crack - the binder itself degrades chemically over centuries.
+
+- **Linseed yellowing.** The oxidative degradation products of linseed oil (conjugated
+  polyene chromophores) absorb in the blue-violet: the aged binder becomes a long-pass
+  filter whose absorption coefficient rises steeply below ~470 nm. The engine applies a
+  per-band absorption profile peaking in the **400-460 nm bands**, double-pass
+  Beer-Lambert (light crosses the film twice), saturating **non-linearly with artwork
+  age** and weighted by local film thickness and metal-heavy pigment content - titanium
+  and lead whites yellow first, exactly as conservators observe.
+- **Metal-soap efflorescence.** Lead and zinc ions migrate through the aged binder and
+  saponify with the oil's free fatty acids; the resulting soaps crystallize as white,
+  semi-translucent crusts in the **valleys between brush strokes and inside open cracks**.
+  The engine grows deterministic crystal colonies there, writes them directly into the 3D
+  height field as high-frequency micro-relief, pushes the local surface roughness above
+  90% (collapsing both the paint and varnish specular lobes into a weathered matte), and
+  mixes the salt bloom over the aged film stack per spectral band.
+
+The **Louvre Archive** preset switches the entire physical stack on at once - craquelure,
+BSSRDF, canvas warp, incandescent metamerism, two-pass glazing, and chemical aging - and
+produces a centuries-old museum piece from a phone snapshot.
+
 ---
 
 ## Performance and Architecture
 
 Entire engine is **freestanding C99** - no libc, no emscripten, no runtime of any kind.
 It is compiled directly with `clang` and linked with `wasm-ld` down to a single
-**~50 KB WASM binary** (`49,729` bytes, exactly) with no imports beyond a linear memory.
+**~72 KB WASM binary** (`73,926` bytes, exactly) with no imports beyond a linear memory.
 That is the whole "backend": a payload smaller than a single icon on most SaaS landing
-pages, doing all of the work above.
+pages, doing all of the work above - including the full 8-band spectral pipeline.
 
 - **Deterministic bump allocator.** There is no `malloc`, no garbage collector, no heap
   fragmentation. The engine owns one linear-memory arena and hands out scratch buffers with
