@@ -90,7 +90,7 @@ void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
 /*
  * Full physical shading state for pc_shade_height.
  * Optional pointers may be 0;
- * each feature collapses to no-op at its neutral value (aniso 0).
+ * each feature collapses to a no-op at its neutral value (aniso 0, crack 0).
  */
 typedef struct {
   f32 depth;      /* heightmap gradient multiplier for the normals */
@@ -102,6 +102,10 @@ typedef struct {
   const f32 *tfx; /* stroke tangent field for Kajiya-Kay glint, or 0 */
   const f32 *tfy;
   f32 aniso; /* isotropic -> strand glint blend */
+
+  /* stress-fracture craquelure */
+  const f32 *crack; /* V-groove depth per pixel from pc_craquelure, or 0 */
+  f32 crack_dirt;   /* age: dirt accumulated inside the grooves */
 } pc_shade;
 
 void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
@@ -111,6 +115,8 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
 void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 scale);
 void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
                      const pc_shade *sp);
+void pc_craquelure(f32 *height, f32 *crack, i32 w, i32 h, f32 tension,
+                   f32 vdepth);
 
 /* field.c */
 void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);
