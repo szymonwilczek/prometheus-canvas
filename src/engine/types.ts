@@ -97,6 +97,49 @@ export interface PaintParams {
   sbrDetailDensity: number;
   /** SBR: 1 = strokes bend fully with the flow field, 0 = straight flicks. */
   sbrAlignment: number;
+  /**
+   * Subsurface scattering: reduced scattering coefficient sigma_s' of the
+   * oil binder, px^-1. 0 disables the BSSRDF dipole gather.
+   */
+  sssScatter: number;
+  /**
+   * Subsurface scattering: absorption coefficient sigma_a of the binder,
+   * px^-1. Low absorption = deep, fleshy translucency.
+   */
+  sssAbsorb: number;
+  /**
+   * Varnish layer thickness (0-1). 0 removes the layer; above 0 a
+   * refractive film with its own brush-stroke micro-relief sits on the
+   * paint: sharp Fresnel first-surface glint + Snell-refracted paint
+   * shading underneath.
+   */
+  varnishThickness: number;
+  /** Refractive index of the varnish film (~1.5 for dammar/mastic). */
+  varnishIor: number;
+  /**
+   * Gloss-map dependency (0-1): how strongly local pigment density and film
+   * thickness pull the paint lobe toward matte (dark/thick passages dry
+   * matte, oil-rich glazes dry glossy).
+   */
+  glossDependency: number;
+  /**
+   * Craquelure drying tension (0-1): crack nucleation density and how far
+   * Griffith propagation carries each tip. 0 disables the fracture network.
+   */
+  crackTension: number;
+  /** Craquelure V-groove depth carved out of the height field (0-1). */
+  crackDepth: number;
+  /** Craquelure age (0-1): dirt accumulated inside the grooves. */
+  crackAge: number;
+  /**
+   * Canvas stretch tension (0-1): amplitude of the elastic edge sag between
+   * tacks and of the corner folds. 0 disables the warp pass.
+   */
+  warpTension: number;
+  /** Poisson's ratio of the cloth (~0.3 for cotton canvas). */
+  warpPoisson: number;
+  /** Corner wrinkle frequency: ripple count in each folded corner. */
+  wrinkleFrequency: number;
 }
 
 /** Parameters for the output stage (stages 6-7). */
@@ -143,6 +186,17 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   sbrDetail: true,
   sbrDetailDensity: 1,
   sbrAlignment: 0.85,
+  sssScatter: 0,
+  sssAbsorb: 0.35,
+  varnishThickness: 0,
+  varnishIor: 1.5,
+  glossDependency: 0.5,
+  crackTension: 0,
+  crackDepth: 0.5,
+  crackAge: 0.3,
+  warpTension: 0,
+  warpPoisson: 0.3,
+  wrinkleFrequency: 5,
 };
 
 export const DEFAULT_OUTPUT_PARAMS: OutputParams = {

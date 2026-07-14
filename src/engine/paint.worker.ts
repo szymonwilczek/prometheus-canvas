@@ -45,6 +45,17 @@ interface EngineExports {
     vibrancy: number,
     anisotropy: number,
     fringe: number,
+    sssScatter: number,
+    sssAbsorb: number,
+    varnish: number,
+    varnishIor: number,
+    glossDep: number,
+    crackTension: number,
+    crackDepth: number,
+    crackDirt: number,
+    warpTension: number,
+    warpPoisson: number,
+    wrinkleFreq: number,
   ): void;
   pc_upscale(
     src: number,
@@ -128,6 +139,17 @@ function handle(req: WorkerRequest): void {
     p.paintVibrancy,
     p.brushAnisotropy,
     p.edgeFringe,
+    p.sssScatter,
+    p.sssAbsorb,
+    p.varnishThickness,
+    p.varnishIor,
+    p.glossDependency,
+    p.crackTension,
+    p.crackDepth,
+    p.crackAge,
+    p.warpTension,
+    p.warpPoisson,
+    p.wrinkleFrequency,
   );
 
   if (out) {

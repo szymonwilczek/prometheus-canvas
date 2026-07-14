@@ -283,9 +283,10 @@ void pc_craquelure(f32 *height, f32 *crack, i32 w, i32 h, f32 tension,
 }
 
 void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
-                const pc_shade *sp) {
+                f32 crack_tension, f32 crack_depth, const pc_shade *sp) {
   pc_shade local = *sp;
-  if (local.depth <= 0.0f && weave <= 0.0f && local.varnish <= 0.0f)
+  if (local.depth <= 0.0f && weave <= 0.0f && crack_tension <= 0.0f &&
+      local.varnish <= 0.0f)
     return;
 
   usize n = (usize)w * (usize)h;
@@ -355,10 +356,19 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
     }
   }
 
-  /* layer 3: canvas weave, then light the combined field */
+  /* layer 3: canvas weave,
+   * then the drying fractures cut through the whole stack
+   * (real craquelure reaches down to the ground layer) */
   pc_add_weave(height, w, h, weave, weave_scale);
+  if (crack_tension > 0.0f) {
+    f32 *crack = (f32 *)pc_alloc(n * 4);
+    if (crack) {
+      pc_craquelure(height, crack, w, h, crack_tension, crack_depth);
+      local.crack = crack;
+    }
+  }
   if (local.depth <= 0.0f)
-    local.depth = 20.0f; /* weave-only mode still needs normals
+    local.depth = 20.0f; /* weave/crack-only mode still needs normals
                           * to have something to bite on */
   pc_shade_height(img, w, h, height, &local);
 }

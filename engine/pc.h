@@ -86,7 +86,6 @@ void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
 void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out);
 void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
-
 /*
  * Full physical shading state for pc_shade_height.
  * Optional pointers may be 0;
@@ -119,7 +118,7 @@ typedef struct {
 } pc_shade;
 
 void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
-                const pc_shade *sp);
+                f32 crack_tension, f32 crack_depth, const pc_shade *sp);
 
 /* shared relief helpers (impasto.c) */
 void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 scale);

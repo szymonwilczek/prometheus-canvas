@@ -35,6 +35,18 @@ static const f32 *paint_tangents(const u8 *img, i32 w, i32 h, f32 anisotropy,
   return tx;
 }
 
+/* drying fractures carved into a stroke renderer's height field */
+static void apply_craquelure(f32 *height, i32 w, i32 h, f32 tension, f32 depth,
+                             pc_shade *sp) {
+  if (tension <= 0.0f)
+    return;
+  f32 *crack = (f32 *)pc_alloc((usize)w * (usize)h * 4);
+  if (!crack)
+    return;
+  pc_craquelure(height, crack, w, h, tension, depth);
+  sp->crack = crack;
+}
+
 /*
  * GEOMETRIC CANVAS STRETCH & CORNER WARP.
  *
@@ -201,9 +213,11 @@ void pc_canvas_warp(u8 *img, i32 w, i32 h, f32 tension, f32 poisson,
 /*
  * Stages 1-5 at constant resolution:
  * Kuwahara -> flow strokes -> pigment quantization -> saturation/
- * contrast -> impasto (ridges + bristles + canvas weave, Blinn-Phong).
+ * contrast -> impasto (ridges + bristles + canvas weave + craquelure,
+ * layered varnish/SSS shading) -> elastic canvas warp.
  * Any stage collapses to a no-op at its neutral parameter value
- * (radius 0, stroke length 0, pigments 0, sat/contrast 1, depth 0).
+ * (radius 0, stroke length 0, pigments 0, sat/contrast 1, depth 0,
+ * scatter 0, varnish 0, tension 0).
  */
 void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 edge_q, i32 stroke_length, i32 pigments, f32 saturation,
@@ -213,7 +227,11 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 i32 render_mode, i32 knife_size, f32 knife_detail,
                 f32 sbr_undercoat, f32 sbr_form, f32 sbr_detail,
                 f32 sbr_alignment, f32 knife_ridge, f32 knife_dry,
-                f32 knife_drag, f32 vibrancy, f32 anisotropy, f32 fringe) {
+                f32 knife_drag, f32 vibrancy, f32 anisotropy, f32 fringe,
+                f32 sss_scatter, f32 sss_absorb, f32 varnish, f32 varnish_ior,
+                f32 gloss_dep, f32 crack_tension, f32 crack_depth,
+                f32 crack_dirt, f32 warp_tension, f32 warp_poisson,
+                f32 wrinkle_freq) {
   pc_kuwahara(src, dst, w, h, kuwahara_radius, edge_q);
   /* Quantize before any stroke pass:
    * all renderers then work with limited physical palette */
@@ -229,6 +247,13 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
       .tfx = 0,
       .tfy = 0,
       .aniso = anisotropy,
+      .sss_scatter = sss_scatter,
+      .sss_absorb = sss_absorb,
+      .varnish = varnish,
+      .varnish_ior = varnish_ior,
+      .gloss_dep = gloss_dep,
+      .crack = 0,
+      .crack_dirt = crack_dirt,
   };
 
   if (render_mode == 2) {
@@ -247,14 +272,12 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
+    apply_craquelure(height, w, h, crack_tension, crack_depth, &sp);
     f32 *tfy;
     sp.tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
     sp.tfy = tfy;
     pc_shade_height(dst, w, h, height, &sp);
-    return;
-  }
-
-  if (render_mode == 1) {
+  } else if (render_mode == 1) {
     /* Palette knife:
      * the image is rebuilt from discrete smears that carry their own relief;
      * the per-pixel texture stages (flow LIC, Sobel ridges, bristles) do not
@@ -268,33 +291,37 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_color_adjust(dst, w, h, saturation, contrast);
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
+    apply_craquelure(height, w, h, crack_tension, crack_depth, &sp);
     f32 *tfy;
     sp.tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
     sp.tfy = tfy;
     pc_shade_height(dst, w, h, height, &sp);
-    return;
-  }
-
-  /* render_mode 0 - LEGACY per-pixel LIC brush.
-   * Kept for compatibility; the physics-based SBR renderer (mode 2) is
-   * the default brush.
-   * This path knows nothing of the paint physics
-   * (skipping, dragging, Kubelka-Munk, fringing, anisotropic glint) */
-  if (stroke_length > 0) {
-    usize n = (usize)w * (usize)h;
-    f32 *fx = (f32 *)pc_alloc(n * 4);
-    f32 *fy = (f32 *)pc_alloc(n * 4);
-    f32 *aniso = (f32 *)pc_alloc(n * 4);
-    if (fx && fy && aniso) {
-      pc_structure_tensor(dst, w, h, fx, fy, aniso);
-      pc_flow_strokes(dst, w, h, stroke_length, fx, fy);
+  } else {
+    /* render_mode 0 - LEGACY per-pixel LIC brush.
+     * Kept for compatibility;
+     * the physics-based SBR renderer (mode 2) is the default brush.
+     * This path knows nothing of the paint physics
+     * (skipping, dragging, Kubelka-Munk, fringing, anisotropic glint) */
+    if (stroke_length > 0) {
+      usize n = (usize)w * (usize)h;
+      f32 *fx = (f32 *)pc_alloc(n * 4);
+      f32 *fy = (f32 *)pc_alloc(n * 4);
+      f32 *aniso = (f32 *)pc_alloc(n * 4);
+      if (fx && fy && aniso) {
+        pc_structure_tensor(dst, w, h, fx, fy, aniso);
+        pc_flow_strokes(dst, w, h, stroke_length, fx, fy);
+      }
     }
+
+    pc_color_adjust(dst, w, h, saturation, contrast);
+    pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
+    sp.aniso = 0.0f; /* legacy path has no stroke tangents */
+    pc_impasto(dst, w, h, bristle, weave, weave_scale, crack_tension,
+               crack_depth, &sp);
   }
 
-  pc_color_adjust(dst, w, h, saturation, contrast);
-  pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
-  sp.aniso = 0.0f; /* legacy path has no stroke tangents */
-  pc_impasto(dst, w, h, bristle, weave, weave_scale, &sp);
+  /* final spatial stage: stretched canvas itself deforms */
+  pc_canvas_warp(dst, w, h, warp_tension, warp_poisson, wrinkle_freq);
 }
 
 /*
