@@ -218,7 +218,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 crack_dirt, f32 warp_tension, f32 warp_poisson,
                 f32 wrinkle_freq, i32 illuminant, f32 spectral,
                 i32 glaze_layers, f32 glaze_dilution, f32 glaze_scatter,
-                f32 glaze_ior);
+                f32 glaze_ior, f32 age, f32 yellowing, f32 effl_density,
+                f32 effl_scale, f32 effl_rough);
 
 /* field.c */
 void pc_importance(const u8 *img, i32 w, i32 h, f32 *imp);

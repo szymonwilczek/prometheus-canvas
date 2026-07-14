@@ -62,6 +62,11 @@ interface EngineExports {
     glazeDilution: number,
     glazeScatter: number,
     glazeIor: number,
+    age: number,
+    yellowing: number,
+    efflDensity: number,
+    efflScale: number,
+    efflRoughness: number,
   ): void;
   pc_upscale(
     src: number,
@@ -165,6 +170,11 @@ function handle(req: WorkerRequest): void {
     p.glazeDilution,
     p.glazeScatter,
     p.glazeIor,
+    p.artworkAge,
+    p.yellowingStrength,
+    p.efflorescenceDensity,
+    p.efflorescenceScale,
+    p.efflorescenceRoughness,
   );
 
   if (out) {

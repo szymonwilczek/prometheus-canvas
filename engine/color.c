@@ -414,6 +414,27 @@ void pc_glaze_apply(f32 *spd, f32 thickness, i32 layers, f32 dilution,
   }
 }
 
+/* Oxidative degradation products of linseed oil
+ * (conjugated polyene chromophores) absorb in the blue-violet:
+ * aged binder acts as long-pass filter whose absorption coefficient sigma_a
+ * rises steeply below ~470 nm.
+ * Per-band relative absorption profile below peaks in the 400-460 nm bands
+ * and vanishes above ~560 nm, and the light crosses the film twice
+ * (in and out), hence the factor 2 in the Beer-Lambert exponent.
+ * `amount` carries the non-linear age response and the local thickness/pigment
+ * weighting computed by the shader.
+ */
+static const f32 YELLOW_ABS[PC_NB] = {1.00f, 0.85f, 0.28f, 0.07f,
+                                      0.02f, 0.0f,  0.0f,  0.0f};
+
+void pc_age_yellow(f32 *spd, f32 amount) {
+  if (amount <= 0.0f)
+    return;
+  for (i32 k = 0; k < PC_NB; k++)
+    if (YELLOW_ABS[k] > 0.0f)
+      spd[k] *= pc_expf(-2.0f * amount * YELLOW_ABS[k]);
+}
+
 /* reflectance in (0,1) -> Kubelka-Munk absorption/scattering ratio */
 static inline f32 km_ks(f32 r) {
   f32 rr = pc_clampf(r, 0.004f, 0.996f);

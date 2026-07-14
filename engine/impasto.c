@@ -293,6 +293,73 @@ void pc_craquelure(f32 *height, f32 *crack, i32 w, i32 h, f32 tension,
   }
 }
 
+/*
+ * METAL-SOAP EFFLORESCENCE.
+ *
+ * Lead and zinc ions from metal-bearing pigments migrate through the aged
+ * binder and saponify with the free fatty acids of the oil;
+ * resulting metal soaps crystallize where the film is thinnest and moisture
+ * lingers - in the depressions and valleys between brush strokes, and inside
+ * open drying cracks.
+ * Deposits are microscopic white, semi-translucent crystalline crusts that
+ * shade nearly matte.
+ *
+ * Model grows crystal colonies deterministically:
+ *   - the valley mask is the negative relief (box-blurred height minus height),
+ *     reinforced by the craquelure groove depth;
+ *   - colonies gate on a coarse hash lattice (soaps bloom in patches, not as
+ *     uniform frost), individual crystals on a fine per-cell hash, and each
+ *     crystal carries per-pixel high-frequency granularity;
+ *   - every crystal is written directly into the 3D height field as
+ *     high-frequency micro-relief so the normals pick up the crust, and
+ *     recorded in the `effl` map that the shader uses to push local roughness
+ *     above 90% (matte crystalline scattering) and to whiten the diffuse
+ *     reflectance.
+ */
+void pc_efflorescence(f32 *height, const f32 *crack, f32 *effl, i32 w, i32 h,
+                      f32 density, f32 scale) {
+  usize n = (usize)w * (usize)h;
+  memset(effl, 0, n * 4);
+  if (density <= 0.0f)
+    return;
+
+  f32 *blur = (f32 *)pc_alloc(n * 4);
+  if (!blur)
+    return;
+  pc_box_blur(height, blur, w, h, 4);
+
+  i32 cell = pc_maxi(1, (i32)(scale + 0.5f));
+  i32 colony = cell * 6; /* colonies span several crystal cells */
+
+  for (i32 y = 0; y < h; y++) {
+    for (i32 x = 0; x < w; x++) {
+      usize i = (usize)y * (usize)w + (usize)x;
+
+      f32 valley = pc_maxf(0.0f, blur[i] - height[i]) * 10.0f;
+      if (crack)
+        valley += crack[i] * 4.0f;
+      valley = pc_minf(valley, 1.0f);
+      if (valley <= 0.02f)
+        continue;
+
+      /* patchy colony gate on the coarse lattice */
+      f32 cg = pc_hash2((x / colony) * 7 + 13, (y / colony) * 5 + 29);
+      f32 g = pc_clampf((density * 1.15f - cg) * 4.0f, 0.0f, 1.0f);
+      if (g <= 0.0f)
+        continue;
+
+      /* individual salt grains + microscopic granularity */
+      f32 grain = pc_hash2(x / cell + 131, y / cell + 197);
+      f32 fine = pc_hash2(x * 3 + 1, y * 3 + 2);
+      f32 c = valley * g * grain * (0.55f + 0.45f * fine);
+
+      effl[i] = pc_minf(1.0f, c * 1.6f);
+      /* crystalline crust carved into the relief itself */
+      height[i] += density * c * 0.012f * (0.4f + 0.6f * fine);
+    }
+  }
+}
+
 void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
                 f32 crack_tension, f32 crack_depth, const pc_shade *sp) {
   pc_shade local = *sp;
@@ -376,6 +443,14 @@ void pc_impasto(u8 *img, i32 w, i32 h, f32 bristle, f32 weave, f32 weave_scale,
     if (crack) {
       pc_craquelure(height, crack, w, h, crack_tension, crack_depth);
       local.crack = crack;
+    }
+  }
+  if (local.effl_density > 0.0f) {
+    f32 *effl = (f32 *)pc_alloc(n * 4);
+    if (effl) {
+      pc_efflorescence(height, local.crack, effl, w, h, local.effl_density,
+                       local.effl_scale);
+      local.effl = effl;
     }
   }
   if (local.depth <= 0.0f)
@@ -708,6 +783,15 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
             0.05f, 1.0f);
       }
 
+      /* metal-soap crusts scatter diffusely:
+       * crystalline deposits push the local roughness above 90%,
+       * collapsing the specular lobe toward the broadened matte exponent */
+      f32 effl_c = 0.0f;
+      if (sp->effl) {
+        effl_c = sp->effl[i] * pc_clampf(sp->effl_rough, 0.0f, 1.0f);
+        gloss *= 1.0f - 0.95f * effl_c;
+      }
+
       /* paint-layer lobe:
        * matte pixels get the broadened low exponent,
        * glossy pixels the full one, both relative to flat */
@@ -739,6 +823,9 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
         s_spec *= 1.0f - c;
         spec_v *= 1.0f - c;
       }
+      /* crystals erupt through the varnish film and kill its glint too */
+      if (effl_c > 0.0f)
+        spec_v *= 1.0f - 0.9f * effl_c;
 
       irr[i] = E;
       spc[i] = sp->specular * (s_spec + spec_v);
@@ -770,12 +857,28 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       f32 g = (f32)img[i * 4 + 1];
       f32 b = (f32)img[i * 4 + 2];
 
+      /* metal-heavy pigments (titanium/lead whites) feed both the
+       * yellowing chemistry and the soap crystallization */
+      f32 metal =
+          pc_luma(img[i * 4], img[i * 4 + 1], img[i * 4 + 2]) * (1.0f / 255.0f);
+
       /* centuries of dirt settle inside the grooves */
       if (sp->crack && dirt > 0.0f) {
         f32 c = dirt * pc_minf(1.0f, sp->crack[i] * 6.0f);
         r += (46.0f - r) * c;
         g += (34.0f - g) * c;
         b += (22.0f - b) * c;
+      }
+
+      /* semi-translucent white salt crust over the paint
+       * (the spectral path applies it per band, on top of the film stack) */
+      if (sp->effl && !spec_shade) {
+        f32 salt = 0.45f * sp->effl[i];
+        if (salt > 0.0f) {
+          r += (236.0f - r) * salt;
+          g += (233.0f - g) * salt;
+          b += (226.0f - b) * salt;
+        }
       }
 
       if (!spec_shade) {
@@ -806,6 +909,26 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       if (sp->glaze_layers > 0)
         pc_glaze_apply(spd, height[i], sp->glaze_layers, sp->glaze_dilution,
                        sp->glaze_scatter, sp->glaze_ior);
+
+      /* linseed yellowing:
+       * non-linear in age (oxidation slows as the chromophore population
+       * saturates), stronger where the film is thick and where metal-heavy
+       * pigments catalyze the reaction */
+      if (sp->age > 0.0f && sp->yellowing > 0.0f) {
+        f32 amount = sp->yellowing * (1.0f - pc_expf(-2.2f * sp->age)) *
+                     (0.35f + 0.65f * pc_minf(1.0f, height[i] * 2.5f)) *
+                     (0.45f + 0.55f * metal);
+        pc_age_yellow(spd, amount);
+      }
+
+      /* salt crust crystallized on top of the aged film stack:
+       * flat-white scattering mixed over the emerging reflectance */
+      if (sp->effl) {
+        f32 salt = 0.45f * sp->effl[i];
+        if (salt > 0.0f)
+          for (i32 k = 0; k < PC_NB; k++)
+            spd[k] += (0.90f - spd[k]) * salt;
+      }
 
       f32 rad[PC_NB];
       for (i32 k = 0; k < PC_NB; k++) {

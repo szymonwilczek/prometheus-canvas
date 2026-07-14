@@ -47,6 +47,18 @@ static void apply_craquelure(f32 *height, i32 w, i32 h, f32 tension, f32 depth,
   sp->crack = crack;
 }
 
+/* metal-soap crystals grown into a stroke renderer's height field */
+static void apply_efflorescence(f32 *height, i32 w, i32 h, pc_shade *sp) {
+  if (sp->effl_density <= 0.0f)
+    return;
+  f32 *effl = (f32 *)pc_alloc((usize)w * (usize)h * 4);
+  if (!effl)
+    return;
+  pc_efflorescence(height, sp->crack, effl, w, h, sp->effl_density,
+                   sp->effl_scale);
+  sp->effl = effl;
+}
+
 /*
  * GEOMETRIC CANVAS STRETCH & CORNER WARP.
  *
@@ -233,7 +245,8 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
                 f32 crack_dirt, f32 warp_tension, f32 warp_poisson,
                 f32 wrinkle_freq, i32 illuminant, f32 spectral,
                 i32 glaze_layers, f32 glaze_dilution, f32 glaze_scatter,
-                f32 glaze_ior) {
+                f32 glaze_ior, f32 age, f32 yellowing, f32 effl_density,
+                f32 effl_scale, f32 effl_rough) {
   /* configure the spectral engine before any stroke pass runs:
    * wet-on-wet Kubelka-Munk mixing inside the renderers is per-band
    * whenever the metameric shift is active */
@@ -267,6 +280,12 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
       .glaze_dilution = glaze_dilution,
       .glaze_scatter = glaze_scatter,
       .glaze_ior = glaze_ior,
+      .age = age,
+      .yellowing = yellowing,
+      .effl_density = effl_density,
+      .effl_scale = effl_scale,
+      .effl_rough = effl_rough,
+      .effl = 0,
   };
 
   if (render_mode == 2) {
@@ -286,6 +305,7 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
     apply_craquelure(height, w, h, crack_tension, crack_depth, &sp);
+    apply_efflorescence(height, w, h, &sp);
     f32 *tfy;
     sp.tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
     sp.tfy = tfy;
@@ -305,6 +325,7 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     pc_pigment_noise(dst, w, h, pigment_noise, noise_scale);
     pc_add_weave(height, w, h, weave, weave_scale);
     apply_craquelure(height, w, h, crack_tension, crack_depth, &sp);
+    apply_efflorescence(height, w, h, &sp);
     f32 *tfy;
     sp.tfx = paint_tangents(dst, w, h, anisotropy, &tfy);
     sp.tfy = tfy;

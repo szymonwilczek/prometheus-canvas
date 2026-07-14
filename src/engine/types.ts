@@ -176,6 +176,29 @@ export interface PaintParams {
    * reflected spectrum is integrated under the selected illuminant.
    */
   spectralIntensity: number;
+  /**
+   * Artwork age (0-1, roughly 0-500 years). Drives the non-linear
+   * linseed-oil yellowing: extra absorption grows in the 400-460 nm
+   * bands, strongest in thick films and metal-heavy (titanium/lead
+   * white) passages. 0 = fresh paint, no yellowing.
+   */
+  artworkAge: number;
+  /** Yellowing strength at full age (0-1). */
+  yellowingStrength: number;
+  /**
+   * Metal-soap efflorescence coverage (0-1). Crystalline white salt
+   * colonies grown in the relief valleys and open cracks, written as
+   * high-frequency micro-relief into the height map. 0 = none.
+   */
+  efflorescenceDensity: number;
+  /** Crystal colony grain size in px. */
+  efflorescenceScale: number;
+  /**
+   * How matte the crystal deposits shade (0-1): 1 pushes the local
+   * surface roughness above 90%, collapsing specular highlights into
+   * a weathered crust.
+   */
+  efflorescenceRoughness: number;
 }
 
 /** Parameters for the output stage (stages 6-7). */
@@ -239,6 +262,11 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   glazeIor: 1.48,
   illuminant: "d65",
   spectralIntensity: 0,
+  artworkAge: 0,
+  yellowingStrength: 0.7,
+  efflorescenceDensity: 0,
+  efflorescenceScale: 3,
+  efflorescenceRoughness: 0.9,
 };
 
 export const DEFAULT_OUTPUT_PARAMS: OutputParams = {
