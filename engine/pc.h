@@ -86,6 +86,42 @@ void pc_quantize(u8 *img, i32 w, i32 h, i32 k);
 void pc_color_adjust(u8 *img, i32 w, i32 h, f32 saturation, f32 contrast);
 void pc_mix_paint(const f32 *a, const f32 *b, f32 t, f32 vibrancy, f32 *out);
 void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
+
+/*
+ * 8-band spectral engine (color.c).
+ *
+ * Reflectance spectra are discretized into PC_NB bands spanning
+ * 380-730 nm (band width 43.75 nm).
+ *
+ * RGB -> SPD uses Smits' basis-spectra upsampling;
+ * SPD -> RGB integrates the CIE 1931 2-degree observer
+ * (Wyman-Sloan-Shirley analytic fits) under physical illuminant SPD,
+ * anchored so that the D65 round trip is exact on the sRGB primaries.
+ */
+#define PC_NB 8
+
+/* illuminant ids for pc_spectral_setup / pc_shade.illuminant */
+#define PC_ILL_D65 0    /* CIE D65 daylight, 6504 K            */
+#define PC_ILL_A 1      /* CIE A incandescent, 2856 K Planck   */
+#define PC_ILL_F11 2    /* CIE F11 tri-band fluorescent        */
+#define PC_ILL_CANDLE 3 /* candle flame, ~1900 K Planck        */
+
+/* Select the gallery illuminant and the metameric-shift strength.
+ * strength 0 collapses every spectral path to the sRGB bypass. */
+void pc_spectral_setup(i32 illuminant, f32 strength);
+
+/* linear rgb in [0,1] -> 8-band reflectance (Smits spectral upsampling) */
+void pc_rgb_to_spd(f32 r, f32 g, f32 b, f32 *spd);
+/* 8-band SPD -> linear rgb under the D65 reference observer */
+void pc_spd_to_rgb_ref(const f32 *spd, f32 *rgb);
+/* 8-band SPD -> linear rgb under the selected gallery illuminant */
+void pc_spd_to_display(const f32 *spd, f32 *rgb);
+/* linear rgb tint of the selected illuminant (flat white reflector) */
+void pc_display_white(f32 *rgb);
+
+/* sRGB transfer function, c in [0,255] */
+f32 pc_srgbf_to_linear(f32 c);
+u8 pc_linear_to_srgb(f32 v);
 /*
  * Full physical shading state for pc_shade_height.
  * Optional pointers may be 0;
