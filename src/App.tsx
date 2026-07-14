@@ -119,13 +119,7 @@ function App() {
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
       <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b px-4 py-2">
-        <h1 className="font-mono text-sm font-semibold">prometheus-canvas</h1>
-        <Badge
-          variant="outline"
-          className="hidden font-mono text-[10px] sm:inline-flex"
-        >
-          pure math · zero AI · zero servers
-        </Badge>
+        <h1 className="font-mono text-sm font-semibold">Prometheus</h1>
         <div className="ml-auto flex items-center gap-2">
           {fullImage && (
             <span className="font-mono text-xs text-muted-foreground tabular-nums">
@@ -155,7 +149,7 @@ function App() {
             disabled={!fullImage || !ready || exporting}
             onClick={() => void onExport()}
           >
-            {exporting ? "Rendering…" : `Export PNG ${output.upscaleFactor}x`}
+            {exporting ? "Rendering..." : `Export PNG ${output.upscaleFactor}x`}
           </Button>
         </div>
       </header>
@@ -187,7 +181,7 @@ function App() {
               variant={ready ? "secondary" : "destructive"}
               className="text-[10px]"
             >
-              {ready ? "wasm ready" : "loading wasm"}
+              {ready ? "WASM ready" : "Loading WASM"}
             </Badge>
           </div>
           <Separator className="mb-3" />

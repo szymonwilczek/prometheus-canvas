@@ -212,7 +212,7 @@ export function ControlsPanel({
       {params.mode === "sbr" && (
         <Card size="sm">
           <CardHeader>
-            <CardTitle className="text-sm">Paint layers — SBR</CardTitle>
+            <CardTitle className="text-sm">Paint layers -- SBR</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between gap-2">
@@ -275,7 +275,7 @@ export function ControlsPanel({
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-sm">Pigments — k-means</CardTitle>
+          <CardTitle className="text-sm">Pigments -- k-means</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <ParamSlider
@@ -322,7 +322,7 @@ export function ControlsPanel({
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-sm">Impasto — Blinn-Phong</CardTitle>
+          <CardTitle className="text-sm">Impasto -- Blinn-Phong</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <ParamSlider
@@ -415,7 +415,7 @@ export function ControlsPanel({
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-sm">Output — Lanczos3</CardTitle>
+          <CardTitle className="text-sm">Output -- Lanczos3</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex items-center justify-between gap-2">
