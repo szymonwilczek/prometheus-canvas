@@ -1,5 +1,7 @@
 # Prometheus
 
+![overview.png](assets/overview.png)
+
 Upload photo, move few sliders, and watch it become an impasto oil painting with
 physically-mixed pigment, viscous palette-knife relief, and anisotropic varnish glints -
 computed entirely in your browser by freestanding C compiled to WebAssembly. No neural
