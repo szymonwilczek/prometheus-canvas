@@ -14,9 +14,21 @@ import { PRESETS } from "@/engine/presets";
 import {
   DEFAULT_OUTPUT_PARAMS,
   DEFAULT_PAINT_PARAMS,
+  type Illuminant,
   type OutputParams,
   type PaintParams,
 } from "@/engine/types";
+
+const ILLUMINANTS: {
+  id: Illuminant;
+  name: string;
+  tint: [number, number, number];
+}[] = [
+  { id: "d65", name: "D65 — gallery daylight", tint: [255, 255, 251] },
+  { id: "a", name: "A — incandescent 2856 K", tint: [255, 173, 89] },
+  { id: "f11", name: "F11 — fluorescent", tint: [255, 211, 163] },
+  { id: "candle", name: "Candle light — 1900 K", tint: [255, 127, 0] },
+];
 
 interface ControlsPanelProps {
   params: PaintParams;
@@ -39,6 +51,13 @@ export function ControlsPanel({
   const activePreset =
     PRESETS.find((p) => JSON.stringify(p.params) === JSON.stringify(params))
       ?.id ?? "";
+
+  const tint = (ILLUMINANTS.find((il) => il.id === params.illuminant) ??
+    ILLUMINANTS[0])!.tint;
+  const s = params.spectralIntensity;
+  const shiftColor = `rgb(${Math.round(255 + (tint[0] - 255) * s)}, ${Math.round(
+    255 + (tint[1] - 255) * s,
+  )}, ${Math.round(255 + (tint[2] - 255) * s)})`;
 
   return (
     <div className="flex flex-col gap-3">
@@ -497,6 +516,142 @@ export function ControlsPanel({
             max={1}
             step={0.05}
             onChange={(v) => set("crackAge", v)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">
+            Spectral illuminant -- metamerism
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <Label className="text-xs">Light source</Label>
+            <Select
+              value={params.illuminant}
+              onValueChange={(v) => set("illuminant", v as Illuminant)}
+            >
+              <SelectTrigger size="sm" className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ILLUMINANTS.map((il) => (
+                  <SelectItem key={il.id} value={il.id}>
+                    {il.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <ParamSlider
+            label="Metameric shift (0 = sRGB)"
+            value={params.spectralIntensity}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("spectralIntensity", v)}
+          />
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">
+              White point under this light
+            </Label>
+            <div
+              className="h-3 w-full rounded-full border"
+              style={{
+                background: `linear-gradient(to right, rgb(255, 255, 255), ${shiftColor})`,
+              }}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">Layer glazing -- velatura</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ParamSlider
+            label="Glaze passes (0 = off)"
+            value={params.glazeLayers}
+            min={0}
+            max={3}
+            step={1}
+            onChange={(v) => set("glazeLayers", v)}
+          />
+          <ParamSlider
+            label="Glaze dilution"
+            value={params.glazeDilution}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("glazeDilution", v)}
+          />
+          <ParamSlider
+            label="Base-reflective scattering"
+            value={params.glazeScatter}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("glazeScatter", v)}
+          />
+          <ParamSlider
+            label="Glaze medium IOR (n)"
+            value={params.glazeIor}
+            min={1.3}
+            max={1.7}
+            step={0.01}
+            onChange={(v) => set("glazeIor", v)}
+          />
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="text-sm">Chemical aging -- binder</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ParamSlider
+            label="Artwork age (0 = fresh)"
+            value={params.artworkAge}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("artworkAge", v)}
+          />
+          <ParamSlider
+            label="Linseed yellowing strength"
+            value={params.yellowingStrength}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("yellowingStrength", v)}
+          />
+          <ParamSlider
+            label="Efflorescence density"
+            value={params.efflorescenceDensity}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("efflorescenceDensity", v)}
+          />
+          <ParamSlider
+            label="Crystal colony size"
+            value={params.efflorescenceScale}
+            min={1}
+            max={8}
+            step={1}
+            unit="px"
+            onChange={(v) => set("efflorescenceScale", v)}
+          />
+          <ParamSlider
+            label="Crystal matte roughness"
+            value={params.efflorescenceRoughness}
+            min={0}
+            max={1}
+            step={0.05}
+            onChange={(v) => set("efflorescenceRoughness", v)}
           />
         </CardContent>
       </Card>
