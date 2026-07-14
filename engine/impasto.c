@@ -800,6 +800,13 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       pc_rgb_to_spd(pc_srgbf_to_linear(r), pc_srgbf_to_linear(g),
                     pc_srgbf_to_linear(b), spd);
 
+      /* velatura:
+       * diluted glaze stack filters the light reflected by the opaque base
+       * per band (Beer-Lambert in the dilute limit) */
+      if (sp->glaze_layers > 0)
+        pc_glaze_apply(spd, height[i], sp->glaze_layers, sp->glaze_dilution,
+                       sp->glaze_scatter, sp->glaze_ior);
+
       f32 rad[PC_NB];
       for (i32 k = 0; k < PC_NB; k++) {
         f32 Db = sss_on ? wc_b[k] * irr[i] + wt_b[k] * sumn : D;

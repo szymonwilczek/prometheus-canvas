@@ -58,6 +58,10 @@ interface EngineExports {
     wrinkleFreq: number,
     illuminant: number,
     spectral: number,
+    glazeLayers: number,
+    glazeDilution: number,
+    glazeScatter: number,
+    glazeIor: number,
   ): void;
   pc_upscale(
     src: number,
@@ -157,6 +161,10 @@ function handle(req: WorkerRequest): void {
     p.wrinkleFrequency,
     ILLUMINANT_ID[p.illuminant],
     p.spectralIntensity,
+    p.glazeLayers,
+    p.glazeDilution,
+    p.glazeScatter,
+    p.glazeIor,
   );
 
   if (out) {

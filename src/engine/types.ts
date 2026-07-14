@@ -147,6 +147,26 @@ export interface PaintParams {
   warpPoisson: number;
   /** Corner wrinkle frequency: ripple count in each folded corner. */
   wrinkleFrequency: number;
+  /**
+   * Velatura glaze passes stacked over the opaque base paint (0-3).
+   * 0 removes the layer stack; each pass is a thin diluted film of the
+   * local pigment solved as a finite-thickness Kubelka-Munk layer.
+   */
+  glazeLayers: number;
+  /**
+   * Glaze dilution (0-1): binder:pigment ratio of each pass. High
+   * dilution approaches a pure Beer-Lambert color filter (velatura),
+   * low dilution approaches an opaque scumble.
+   */
+  glazeDilution: number;
+  /**
+   * Residual pigment scattering inside the glaze films (0-1). 0 = fully
+   * transparent filter, higher values push toward a milky scumble that
+   * reflects before the light reaches the base layer.
+   */
+  glazeScatter: number;
+  /** Refractive index of the glaze medium (~1.48 for linseed oil). */
+  glazeIor: number;
   /** Spectral rendering: gallery light source SPD. */
   illuminant: Illuminant;
   /**
@@ -213,6 +233,10 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   warpTension: 0,
   warpPoisson: 0.3,
   wrinkleFrequency: 5,
+  glazeLayers: 0,
+  glazeDilution: 0.6,
+  glazeScatter: 0.2,
+  glazeIor: 1.48,
   illuminant: "d65",
   spectralIntensity: 0,
 };

@@ -57,6 +57,10 @@
  */
 #include "pc.h"
 
+/* Kubelka-Munk helpers, defined with the mixing code below */
+static inline f32 km_ks(f32 r);
+static inline f32 km_r(f32 ks);
+
 /* band centers, 380-730 nm in 8 equal 43.75 nm bands */
 static const f32 BAND_L[PC_NB] = {401.875f, 445.625f, 489.375f, 533.125f,
                                   576.875f, 620.625f, 664.375f, 708.125f};
@@ -316,6 +320,98 @@ u8 pc_linear_to_srgb(f32 v) {
   f32 s =
       v <= 0.0031308f ? v * 12.92f : 1.055f * pc_powf(v, 1.0f / 2.4f) - 0.055f;
   return pc_clamp255(s * 255.0f);
+}
+
+/*
+ * Real glazed passage is a stack of films:
+ * opaque underpainting and one or more thin, heavily diluted layers of pigment
+ * suspended in transparent binder.
+ * Light refracts into the stack, is partially absorbed and scattered inside
+ * every film, reflects between the internal boundaries, reaches the opaque
+ * base, and emerges back through the whole stack toward the eye.
+ *
+ * Each film is solved analytically per wavelength band with the
+ * finite-thickness Kubelka-Munk two-flux solution:
+ *
+ *   a = (S + K) / S          b = sqrt(a^2 - 1)
+ *   R = sinh(bSd) / (a sinh(bSd) + b cosh(bSd))
+ *   T = b        / (a sinh(bSd) + b cosh(bSd))
+ *
+ * which in the dilute, scatter-free limit (S -> 0) degenerates exactly to
+ * the Beer-Lambert law T = exp(-K d), R = 0 - a pure velatura filter.
+ * Films are then composed downward with Kubelka's layering relation
+ *
+ *   R_stack = R_1 + T_1^2 R_below / (1 - R_1 R_below)
+ *
+ * (the geometric series of all internal bounce orders), and the air/varnish
+ * boundary of the top film adds the Saunderson correction with k1 the normal
+ * Fresnel reflectance of the glaze medium and k2 its internal diffuse
+ * reflectance (Egan-Hilgeman fit, the same expression the dipole uses).
+ */
+
+/* finite-thickness Kubelka-Munk film: reflectance + transmittance */
+static void km_film(f32 K, f32 S, f32 d, f32 *R, f32 *T) {
+  if (S < 1e-4f) {
+    /* Beer-Lambert limit of the two-flux solution */
+    *R = 0.0f;
+    *T = pc_expf(-pc_minf(K * d, 60.0f));
+    return;
+  }
+  f32 a = (S + K) / S;
+  f32 b = pc_sqrtf(pc_maxf(a * a - 1.0f, 1e-8f));
+  f32 x = pc_minf(b * S * d, 40.0f);
+  f32 e = pc_expf(x), ei = 1.0f / e;
+  f32 sh = 0.5f * (e - ei), ch = 0.5f * (e + ei);
+  f32 den = a * sh + b * ch;
+  *R = sh / den;
+  *T = b / den;
+}
+
+void pc_glaze_apply(f32 *spd, f32 thickness, i32 layers, f32 dilution,
+                    f32 scatter, f32 ior) {
+  if (layers <= 0)
+    return;
+  spectral_init();
+
+  layers = pc_mini(layers, 3);
+  f32 dil = pc_clampf(dilution, 0.0f, 1.0f);
+  f32 conc = 1.0f - 0.88f * dil; /* pigment concentration of each pass */
+  f32 n = pc_clampf(ior, 1.01f, 2.0f);
+
+  /* Saunderson boundary constants of the glaze medium */
+  f32 k1 = (n - 1.0f) / (n + 1.0f);
+  k1 *= k1;
+  f32 k2 = -1.440f / (n * n) + 0.710f / n + 0.668f + 0.0636f * n;
+
+  /* optical depth of one glaze pass scales with the local relief
+   * (paint pools thick in the stroke valleys, thin over the ridges' flanks);
+   * every additional pass adds its own film, deepening the tone the way
+   * painter builds saturation by repeated velatura */
+  f32 dl = 0.18f + 1.1f * pc_minf(pc_maxf(thickness, 0.0f), 1.5f);
+
+  for (i32 k = 0; k < PC_NB; k++) {
+    f32 Rbase = pc_clampf(spd[k], 0.0f, 0.999f);
+
+    /* glaze carries the same local pigment, diluted:
+     * its K/S ratio is that of the base paint,
+     * its absolute K and S scale with concentration */
+    f32 ks = km_ks(Rbase);
+    f32 Sl = conc * scatter * 0.9f;
+    f32 Kl = conc * ks;
+
+    f32 Rl, Tl;
+    km_film(Kl, Sl, dl, &Rl, &Tl);
+
+    /* compose the stack from the base upward */
+    f32 Rst = Rbase;
+    for (i32 j = 0; j < layers; j++)
+      Rst = Rl + Tl * Tl * Rst / (1.0f - pc_minf(Rl * Rst, 0.98f));
+
+    /* air boundary of the top film */
+    Rst = k1 +
+          (1.0f - k1) * (1.0f - k2) * Rst / (1.0f - k2 * pc_minf(Rst, 0.999f));
+    spd[k] = pc_clampf(Rst, 0.0f, 1.05f);
+  }
 }
 
 /* reflectance in (0,1) -> Kubelka-Munk absorption/scattering ratio */
