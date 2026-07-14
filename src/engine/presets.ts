@@ -10,6 +10,8 @@ export interface Preset {
  * One-click starting points.
  * Values are hand-tuned against rendered test scenes;
  * every preset is just a slider configuration - there is no hidden logic behind them.
+ * All brush presets drive the physics-based SBR renderer;
+ * the legacy per-pixel LIC filter remains reachable through the mode selector only.
  */
 export const PRESETS: Preset[] = [
   {
@@ -18,36 +20,12 @@ export const PRESETS: Preset[] = [
     params: { ...DEFAULT_PAINT_PARAMS },
   },
   {
-    id: "thick-impasto",
-    name: "Thick Impasto",
-    params: {
-      ...DEFAULT_PAINT_PARAMS,
-      kuwaharaRadius: 9,
-      edgeQ: 10,
-      strokeLength: 12,
-      pigments: 16,
-      saturation: 1.25,
-      contrast: 1.1,
-      impastoDepth: 85,
-      lightElevation: 35,
-      specular: 0.45,
-      shininess: 20,
-      bristle: 0.85,
-      canvasWeave: 0.25,
-      cavity: 0.8,
-      pigmentNoise: 0.6,
-      noiseScale: 10,
-    },
-  },
-  {
     id: "oil-impasto-sbr",
     name: "Oil Impasto (SBR)",
     params: {
       ...DEFAULT_PAINT_PARAMS,
-      mode: "sbr",
       kuwaharaRadius: 4,
       edgeQ: 8,
-      strokeLength: 0,
       pigments: 24,
       saturation: 1.3,
       contrast: 1.1,
@@ -66,6 +44,35 @@ export const PRESETS: Preset[] = [
       knifeDryness: 0.3,
       knifeDrag: 0.5,
       paintVibrancy: 0.7,
+      brushAnisotropy: 0.7,
+      edgeFringe: 0.4,
+    },
+  },
+  {
+    id: "thick-impasto",
+    name: "Thick Impasto",
+    params: {
+      ...DEFAULT_PAINT_PARAMS,
+      kuwaharaRadius: 6,
+      edgeQ: 10,
+      pigments: 16,
+      saturation: 1.25,
+      contrast: 1.1,
+      impastoDepth: 85,
+      lightElevation: 35,
+      specular: 0.45,
+      shininess: 20,
+      bristle: 0.85,
+      canvasWeave: 0.25,
+      cavity: 0.8,
+      pigmentNoise: 0.6,
+      noiseScale: 10,
+      knifeSize: 48,
+      knifeDryness: 0.4,
+      knifeDrag: 0.55,
+      paintVibrancy: 0.7,
+      brushAnisotropy: 0.7,
+      edgeFringe: 0.45,
     },
   },
   {
@@ -94,6 +101,8 @@ export const PRESETS: Preset[] = [
       knifeDryness: 0.35,
       knifeDrag: 0.5,
       paintVibrancy: 0.7,
+      brushAnisotropy: 0.4,
+      edgeFringe: 0.35,
     },
   },
   {
@@ -103,7 +112,6 @@ export const PRESETS: Preset[] = [
       ...DEFAULT_PAINT_PARAMS,
       kuwaharaRadius: 3,
       edgeQ: 6,
-      strokeLength: 6,
       pigments: 36,
       saturation: 1.15,
       contrast: 1.05,
@@ -116,6 +124,12 @@ export const PRESETS: Preset[] = [
       cavity: 0.35,
       pigmentNoise: 0.3,
       noiseScale: 6,
+      knifeSize: 20,
+      sbrAlignment: 0.9,
+      sbrDetailDensity: 1.5,
+      knifeDryness: 0.2,
+      knifeDrag: 0.4,
+      edgeFringe: 0.3,
     },
   },
   {
@@ -125,7 +139,6 @@ export const PRESETS: Preset[] = [
       ...DEFAULT_PAINT_PARAMS,
       kuwaharaRadius: 8,
       edgeQ: 2,
-      strokeLength: 16,
       pigments: 28,
       saturation: 1.05,
       contrast: 1.0,
@@ -138,6 +151,12 @@ export const PRESETS: Preset[] = [
       cavity: 0.25,
       pigmentNoise: 0.4,
       noiseScale: 12,
+      knifeSize: 44,
+      sbrDetailDensity: 0.5,
+      knifeDryness: 0.1,
+      knifeDrag: 0.6,
+      brushAnisotropy: 0.3,
+      edgeFringe: 0.15,
     },
   },
 ];

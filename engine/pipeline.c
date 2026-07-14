@@ -100,6 +100,11 @@ void pc_process(const u8 *src, i32 w, i32 h, u8 *dst, i32 kuwahara_radius,
     return;
   }
 
+  /* render_mode 0 - LEGACY per-pixel LIC brush.
+   * Kept for compatibility; the physics-based SBR renderer (mode 2) is
+   * the default brush.
+   * This path knows nothing of the paint physics
+   * (skipping, dragging, Kubelka-Munk, fringing, anisotropic glint) */
   if (stroke_length > 0) {
     usize n = (usize)w * (usize)h;
     f32 *fx = (f32 *)pc_alloc(n * 4);

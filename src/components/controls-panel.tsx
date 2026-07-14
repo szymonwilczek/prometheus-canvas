@@ -90,9 +90,9 @@ export function ControlsPanel({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="brush">Brush strokes</SelectItem>
-                <SelectItem value="knife">Palette knife</SelectItem>
                 <SelectItem value="sbr">Impasto oil (SBR)</SelectItem>
+                <SelectItem value="knife">Palette knife</SelectItem>
+                <SelectItem value="brush">Brush (legacy LIC)</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -175,6 +175,14 @@ export function ControlsPanel({
                 max={1}
                 step={0.05}
                 onChange={(v) => set("paintVibrancy", v)}
+              />
+              <ParamSlider
+                label="Edge fringing"
+                value={params.edgeFringe}
+                min={0}
+                max={1}
+                step={0.05}
+                onChange={(v) => set("edgeFringe", v)}
               />
             </>
           )}
@@ -356,6 +364,16 @@ export function ControlsPanel({
             step={2}
             onChange={(v) => set("shininess", v)}
           />
+          {params.mode !== "brush" && (
+            <ParamSlider
+              label="Brush anisotropy"
+              value={params.brushAnisotropy}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(v) => set("brushAnisotropy", v)}
+            />
+          )}
           <ParamSlider
             label="Cavity shadows"
             value={params.cavity}

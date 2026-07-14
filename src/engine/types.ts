@@ -1,14 +1,15 @@
 /**
- * Rendering mode: per-pixel brush filtering, discrete knife smears,
- * or multi-scale traced impasto strokes.
+ * Rendering mode: multi-scale traced impasto strokes (default), discrete
+ * knife smears, or the legacy per-pixel LIC brush filter.
  */
 export type PaintMode = "brush" | "knife" | "sbr";
 
 /** Parameters for the constant-resolution paint pipeline (stages 1-5). */
 export interface PaintParams {
   /**
-   * Renderer: 'brush' (Kuwahara + flow LIC), 'knife' (stroke-based smears),
-   * or 'sbr' (layered flow-traced strokes with a physical heightmap).
+   * Renderer: 'sbr' (layered flow-traced strokes with a physical heightmap,
+   * the default), 'knife' (stroke-based smears), or 'brush' (legacy
+   * Kuwahara + flow LIC filter, kept for compatibility - no paint physics).
    */
   mode: PaintMode;
   /** Kuwahara brush radius in px, 0 disables. Range 0-30. */
@@ -71,6 +72,17 @@ export interface PaintParams {
    * Kubelka-Munk paint mixing vs classic linear RGB blending.
    */
   paintVibrancy: number;
+  /**
+   * Knife + SBR modes: brush anisotropy (0-1). Blends the isotropic
+   * Blinn-Phong highlight toward a Kajiya-Kay strand glint stretched
+   * across the bristle grooves.
+   */
+  brushAnisotropy: number;
+  /**
+   * Knife + SBR modes: edge fringing (0-1). Intensity of the darker,
+   * more saturated pigment halo just inside every stroke boundary.
+   */
+  edgeFringe: number;
   /** SBR: paint the undercoat layer (broad flat slabs). */
   sbrUndercoat: boolean;
   /** SBR: undercoat stroke density multiplier (0.25-2). */
@@ -98,7 +110,7 @@ export interface OutputParams {
 }
 
 export const DEFAULT_PAINT_PARAMS: PaintParams = {
-  mode: "brush",
+  mode: "sbr",
   kuwaharaRadius: 7,
   edgeQ: 8,
   strokeLength: 10,
@@ -122,6 +134,8 @@ export const DEFAULT_PAINT_PARAMS: PaintParams = {
   knifeDryness: 0.25,
   knifeDrag: 0.45,
   paintVibrancy: 0.65,
+  brushAnisotropy: 0.6,
+  edgeFringe: 0.35,
   sbrUndercoat: true,
   sbrUndercoatDensity: 1,
   sbrForm: true,
