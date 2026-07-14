@@ -90,7 +90,8 @@ void pc_pigment_noise(u8 *img, i32 w, i32 h, f32 amount, f32 scale);
 /*
  * Full physical shading state for pc_shade_height.
  * Optional pointers may be 0;
- * each feature collapses to a no-op at its neutral value (aniso 0, crack 0).
+ * each feature collapses to no-op at its neutral value
+ * (aniso 0, sss_scatter 0, crack 0).
  */
 typedef struct {
   f32 depth;      /* heightmap gradient multiplier for the normals */
@@ -102,6 +103,10 @@ typedef struct {
   const f32 *tfx; /* stroke tangent field for Kajiya-Kay glint, or 0 */
   const f32 *tfy;
   f32 aniso; /* isotropic -> strand glint blend */
+
+  /* BSSRDF dipole subsurface scattering of the oil binder */
+  f32 sss_scatter; /* reduced scattering coefficient sigma_s', px^-1 */
+  f32 sss_absorb;  /* absorption coefficient sigma_a, px^-1 */
 
   /* stress-fracture craquelure */
   const f32 *crack; /* V-groove depth per pixel from pc_craquelure, or 0 */

@@ -28,6 +28,11 @@
  * Each step carves a narrow Gaussian V-groove out of the height field
  * and records its depth so the shader can trap light inside the fissure.
  *
+ * SUBSURFACE SCATTERING - linseed binder is translucent;
+ * diffuse irradiance is redistributed with Jensen's BSSRDF dipole approximation
+ * evaluated as 5-tap kernel, and thin high-gradient stroke edges gain warm
+ * transmission glow (light bleeding through the paint rim).
+ *
  * Combined field is lit per pixel by Blinn-Phong with the light direction from
  * the elevation/azimuth in the pc_shade state.
  * Diffuse is normalized against a flat surface, and the specular term is offset
@@ -380,31 +385,79 @@ void pc_add_weave(f32 *height, i32 w, i32 h, f32 weave, f32 weave_scale) {
 }
 
 /*
- * Blinn-Phong relief shading of an RGBA image against an arbitrary height
- * field, driven by the pc_shade state.
- * Diffuse is normalized against a flat surface and the specular term is offset
- * by the flat-surface glint, so zero-relief pixel keeps its exact original
- * color at any light angle.
- * Cavity darkening: pixel below its blurred neighborhood sits in a crevice
- * between strokes and receives ambient light last.
+ * Jensen's dipole diffuse reflectance profile:
+ *   Rd(r) = alpha'/(4 pi) * [ zr (1 + str*dr) e^(-str*dr) / dr^3
+ *                           + zv (1 + str*dv) e^(-str*dv) / dv^3 ]
+ * with the real source at depth zr below the surface and the mirrored
+ * virtual source at zv above it.
+ */
+static f32 dipole_rd(f32 r, f32 alpha, f32 str, f32 zr, f32 zv) {
+  f32 dr = pc_sqrtf(r * r + zr * zr);
+  f32 dv = pc_sqrtf(r * r + zv * zv);
+  f32 tr = str * dr, tv = str * dv;
+  f32 er = (1.0f + tr) * pc_expf(-tr) / (dr * dr * dr);
+  f32 ev = (1.0f + tv) * pc_expf(-tv) / (dv * dv * dv);
+  return alpha * (1.0f / (4.0f * PC_PI)) * (zr * er + zv * ev);
+}
+
+/*
+ * Relief shading of an RGBA image against an arbitrary height field,
+ * driven by the pc_shade state.
  *
- * ANISOTROPIC GLINT:
- * `tfx`/`tfy` (optional, may be NULL) is the local stroke tangent field.
- * Varnished brush grooves do not reflect like plastic:
- * light stretches into streak *across* the hairs.
- * Where the tangent is supplied, the isotropic Blinn-Phong lobe is blended
- * toward a Kajiya-Kay hair-strand term, sin(T,H)^n maximal when the half vector
- * is perpendicular to the groove direction - gated by the local slope so flat
- * varnish keeps no phantom sheen.
- * `aniso` sets the blend.
+ * Pass A rasterizes per-pixel diffuse irradiance and specular energy:
+ * Blinn-Phong over crisp-remapped central-difference normals, blended
+ * toward a Kajiya-Kay strand glint across bristle grooves where a stroke
+ * tangent field is supplied, cavity-darkened in the crevices, and heavily
+ * attenuated inside craquelure V-grooves (light entrapment).
+ *
+ * Pass B redistributes the diffuse irradiance with the BSSRDF dipole kernel
+ * (subsurface scattering in the binder), adds the warm transmission glow at
+ * thin stroke edges, settles dirt into old cracks, and composes the result.
+ * Diffuse is normalized against a flat surface and the specular term is
+ * offset by its flat-surface value, so a zero-relief pixel keeps its exact
+ * original color at any light angle.
  */
 void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
                      const pc_shade *sp) {
+  usize n = (usize)w * (usize)h;
+  f32 *irr = (f32 *)pc_alloc(n * 4);
+  f32 *spc = (f32 *)pc_alloc(n * 4);
+  if (!irr || !spc)
+    return;
+
   f32 *blur = 0;
   if (sp->cavity > 0.0f) {
-    blur = (f32 *)pc_alloc((usize)w * (usize)h * 4);
+    blur = (f32 *)pc_alloc(n * 4);
     if (blur)
       pc_box_blur(height, blur, w, h, 3);
+  }
+
+  /* subsurface dipole constants (sigma_s' = 0 disables the gather) */
+  i32 sss_on = sp->sss_scatter > 0.0f;
+  f32 alpha = 0.0f, str = 0.0f, zr = 0.0f, zv = 0.0f;
+  f32 w_c = 1.0f, w_t = 0.0f;
+  i32 tap = 1;
+  f32 *edge = 0;
+  if (sss_on) {
+    f32 ss = sp->sss_scatter;
+    f32 sa = pc_maxf(sp->sss_absorb, 1e-3f);
+    f32 st = ss + sa;               /* sigma_t' */
+    alpha = ss / st;                /* alpha'   */
+    str = pc_sqrtf(3.0f * sa * st); /* sigma_tr */
+    const f32 NB = 1.48f;           /* linseed binder IOR */
+    f32 fdr = -1.440f / (NB * NB) + 0.710f / NB + 0.668f + 0.0636f * NB;
+    f32 A = (1.0f + fdr) / (1.0f - fdr);
+    zr = 1.0f / st;
+    zv = zr * (1.0f + 4.0f * A / 3.0f);
+    tap = pc_clampi((i32)(1.0f / str + 0.5f), 1, 4);
+    f32 rd0 = dipole_rd(0.0f, alpha, str, zr, zv);
+    f32 rd1 = dipole_rd((f32)tap, alpha, str, zr, zv);
+    f32 sum = rd0 + 4.0f * rd1;
+    w_c = rd0 / sum;
+    w_t = rd1 / sum;
+    edge = (f32 *)pc_alloc(n * 4);
+    if (!edge)
+      sss_on = 0;
   }
 
   f32 ce = pc_cosf(sp->elev);
@@ -461,12 +514,12 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
       f32 ndl = pc_maxf(nx * lx + ny * ly + nz * lz, 0.0f);
       f32 ndh = pc_maxf(nx * hx + ny * hy + nz * hz, 0.0f);
 
-      f32 mult = (AMBIENT + DIFFUSE * ndl) * inv_flat;
+      f32 E = AMBIENT + DIFFUSE * ndl;
 
       usize i = row + (usize)x;
       if (blur) {
         f32 cav = pc_maxf(0.0f, blur[i] - height[i]);
-        mult *= 1.0f - pc_minf(0.6f, sp->cavity * cav * 8.0f);
+        E *= 1.0f - pc_minf(0.6f, sp->cavity * cav * 8.0f);
       }
 
       /* specular relative to flat:
@@ -485,27 +538,56 @@ void pc_shade_height(u8 *img, i32 w, i32 h, const f32 *height,
         s_spec += aniso * (gate * kk - s_spec);
       }
 
+      /* light entrapment inside craquelure V-grooves:
+       * multiple bounces off the fissure walls absorb nearly everything */
+      if (sp->crack) {
+        f32 c = pc_minf(1.0f, sp->crack[i] * 6.0f);
+        E *= 1.0f - 0.80f * c;
+        s_spec *= 1.0f - c;
+      }
+
+      irr[i] = E;
+      spc[i] = sp->specular * s_spec;
+      if (edge)
+        edge[i] = pc_minf(1.0f, gm * 10.0f);
+    }
+  }
+
+  /* pass B: dipole gather + composition */
+  f32 dirt = pc_clampf(sp->crack_dirt, 0.0f, 1.0f);
+  for (i32 y = 0; y < h; y++) {
+    i32 ym = pc_maxi(y - tap, 0), yp = pc_mini(y + tap, h - 1);
+    for (i32 x = 0; x < w; x++) {
+      usize i = (usize)y * (usize)w + (usize)x;
+      f32 D = irr[i];
+      f32 warm = 0.0f;
+      if (sss_on) {
+        i32 xm = pc_maxi(x - tap, 0), xp = pc_mini(x + tap, w - 1);
+        D = w_c * irr[i] + w_t * (irr[(usize)y * (usize)w + (usize)xm] +
+                                  irr[(usize)y * (usize)w + (usize)xp] +
+                                  irr[(usize)ym * (usize)w + (usize)x] +
+                                  irr[(usize)yp * (usize)w + (usize)x]);
+        warm = 0.55f * alpha * edge[i] * pc_expf(-str * 6.0f * height[i]);
+      }
+
+      f32 mult = D * inv_flat;
+      f32 spec = 255.0f * spc[i];
+
       f32 r = (f32)img[i * 4];
       f32 g = (f32)img[i * 4 + 1];
       f32 b = (f32)img[i * 4 + 2];
 
-      /* light entrapment inside craquelure V-grooves:
-       * multiple bounces off the fissure walls absorb nearly everything,
-       * and centuries of dirt settle inside the grooves */
-      if (sp->crack) {
-        f32 c = pc_minf(1.0f, sp->crack[i] * 6.0f);
-        mult *= 1.0f - 0.80f * c;
-        s_spec *= 1.0f - c;
-        f32 d = pc_clampf(sp->crack_dirt, 0.0f, 1.0f) * c;
-        r += (46.0f - r) * d;
-        g += (34.0f - g) * d;
-        b += (22.0f - b) * d;
+      /* centuries of dirt settle inside the grooves */
+      if (sp->crack && dirt > 0.0f) {
+        f32 c = dirt * pc_minf(1.0f, sp->crack[i] * 6.0f);
+        r += (46.0f - r) * c;
+        g += (34.0f - g) * c;
+        b += (22.0f - b) * c;
       }
-      f32 spec = 255.0f * sp->specular * s_spec;
 
-      img[i * 4] = pc_clamp255(r * mult + spec);
-      img[i * 4 + 1] = pc_clamp255(g * mult + spec * 0.97f);
-      img[i * 4 + 2] = pc_clamp255(b * mult + spec * 0.90f);
+      img[i * 4] = pc_clamp255(r * (mult + warm * 1.10f) + spec);
+      img[i * 4 + 1] = pc_clamp255(g * (mult + warm * 0.55f) + spec * 0.97f);
+      img[i * 4 + 2] = pc_clamp255(b * (mult + warm * 0.22f) + spec * 0.90f);
     }
   }
 }
